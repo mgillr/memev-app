@@ -8,6 +8,10 @@ import path from 'node:path';
 const root = path.resolve(process.argv[2] || '.');
 const ENGINE = /\b(crdt[-_]merge|memev-merge|acfa[-_]rs)\b/i;
 const LOGIC = /\b(verifyLicense|signLicense|seatPolicy|engineAllowed|LICENSE_KEYS|limitsFor)\b/;
+// Prose counts: a public page can describe the method or state a patent position with no code at all.
+const METHOD = /\b(OR-?Set|VectorClock|CausalTrustClock|DeltaTrustLattice|AggregateProofCarryingOperation|AdaptiveVerificationController)\b/i;
+const FILING = /\bpatents?\b|\bprovisional (application|filing)\b/i;
+const FILING_OK = /^LICENSE$/; // The Apache-2.0 text itself. Nothing else is exempt.
 const SELF = /^scripts\/(fence|leak-scan)\.mjs$|^scripts\/leak-denylist\.json$|^test\/fence\.test\.mjs$/;
 const files = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
 const findings = [];
@@ -19,6 +23,8 @@ for (const f of files) {
   text.split('\n').forEach((line, i) => {
     if (ENGINE.test(line)) findings.push(`${f}:${i + 1}: names the engine`);
     if (LOGIC.test(line)) findings.push(`${f}:${i + 1}: licence or seat logic`);
+    if (METHOD.test(line)) findings.push(`${f}:${i + 1}: describes the engine's method`);
+    if (FILING.test(line) && !FILING_OK.test(f)) findings.push(`${f}:${i + 1}: patent or filing wording`);
   });
 }
 if (findings.length) { console.error(findings.join('\n')); process.exit(1); }
