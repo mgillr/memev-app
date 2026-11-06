@@ -50,3 +50,6 @@ test('the leak scan passes a clean tree and says so', () => { const r = leak(tre
 test('the leak scan fails on a private key', () => { const r = leak(tree('docs/a.md', `-----BEGIN ${'PRIVATE'} KEY-----\n`)); assert.equal(r.status, 1); assert.match(r.stderr, /private key/); });
 test('the leak scan fails on a personal e-mail address', () => { const r = leak(tree('docs/a.md', `mail someone${'@'}company-name.io\n`)); assert.equal(r.status, 1); assert.match(r.stderr, /e-mail address/); });
 test('the leak scan fails on a denylisted word by its hash', () => { const words = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'w-')), 'w.txt'); fs.writeFileSync(words, 'zebrafishmarker\n'); const r = spawnSync(process.execPath, [path.resolve('scripts/leak-scan.mjs')], { encoding: 'utf8', env: { ...process.env, LEAK_ROOT: tree('docs/a.md', 'a zebrafishmarker here\n'), LEAK_DENYLIST: words } }); assert.equal(r.status, 1); assert.match(r.stderr, /denylisted word/); });
+test('the leak scan fails on both spellings of each filing reference', () => {
+  for (const [a, b] of [['2607', '132'], ['2608', '127']]) for (const text of [`${a}${b}.4`, `GB${a}${b}.3`]) { const r = leak(tree('docs/a.md', `see ${text}\n`)); assert.equal(r.status, 1, text); assert.match(r.stderr, /denylisted word/); }
+});
