@@ -9,19 +9,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(process.env.LEAK_ROOT || path.join(path.dirname(new URL(import.meta.url).pathname), '..'));
 const h = (s) => crypto.createHash('sha256').update(s).digest('hex');
-const deny = new Set(JSON.parse(fs.readFileSync(path.join(root, 'scripts', 'leak-denylist.json'), 'utf8')).sha256);
+const deny = new Set(JSON.parse(fs.readFileSync(new URL('./leak-denylist.json', import.meta.url), 'utf8')).sha256);
 if (process.env.LEAK_DENYLIST) for (const w of fs.readFileSync(process.env.LEAK_DENYLIST, 'utf8').split(/\s+/).filter(Boolean)) deny.add(h(w.toLowerCase()));
 
 // Files whose content is fixed by a licence (attribution must be kept verbatim) or by an approval record.
 const EXEMPT = [/^vendor\/[^/]+\/(NOTICE|LICENSE)$/, /^NOTICE$/];
-const ALLOW_LINE = [{ file: /^docs\/READINESS-REVIEW\.md$/, line: /^Approved-By: \S+ \(\d{4}-\d{2}-\d{2}\)$/ }];
 const SELF = new Set(['scripts/leak-denylist.json']);
-// Commit messages already on main that can't be changed, because history is never rewritten. Only the
-// listed line of each is skipped; the rest of the message is still scanned. Merge pull requests with
-// an explicit subject (gh pr merge --subject) so this list doesn't grow.
-const ALLOW_COMMIT_LINE = new Map([['e5297abf3dd51b953cb0a6829b21927fc56567d4', 1], ['6f21fc3a96bde24ef6e4f36e4018d5c997fcf06f', 1], ['796af33b489ac1683178ac3bed0ff90beb8d6e3f', 9], ['67bec9dea1c2122b45da0a6c440fda29f18cd792', 1], ['3989c80bea615381947758e0ab1d28dfe18f115b', 1], ['4b8b99c64f87d389f8ceb54e48e4c0641de553b1', 1], ['2dd634a5a0cdfca98ce98f9295ba662a0f3ecce2', 1], ['c228ec9dd34e04a8e7ba47acb308aaea8823d6bc', 1], ['79ffa67d1633ca5df63084b1892c67a90e5a7a7a', 1], ['65c1b28b4af268e380956d84da8abf886fa891e4', 1]]); // GitHub's default merge subjects for PR 7 and PR 55; the sign-off line of the 28 Oct docs hotfix; the default merge subject of PR 323, which I merged without an explicit subject; the default merge subject of PR 343, merged the same way; the default merge subject of PR 340, merged the same way; four GitHub-generated merge subjects from the 2 November 2026 product-positioning merges
 const OK_EMAIL = /(@(example\.(com|org|net)|[a-z0-9-]+\.invalid|localhost|users\.noreply\.github\.com)|^git@(ssh\.)?github\.com)$/i; // git@github.com and git@ssh.github.com (the port 443 SSH host) are SSH remotes, not addresses
 const OK_IP = (ip) => /^(127\.|0\.0\.0\.0$|10\.|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|255\.)/.test(ip) || ip.split('.').some((x) => Number(x) > 255);
 const OK_HOME = new Set(['you', 'me', 'user', 'username', 'name', 'runner', 'example', 'alice', 'bob', 'node', '<name>', '<user>', 'ubuntu', 'shared', 'memev']);
@@ -37,7 +32,6 @@ function scanText(where, text, file = '') {
   if (EXEMPT.some((re) => re.test(file)) || SELF.has(file)) return;
   const lines = text.split('\n');
   lines.forEach((line, i) => {
-    if (ALLOW_LINE.some((a) => a.file.test(file) && a.line.test(line))) return;
     // The repository is public at github.com/<owner>/memev, so its owner's name in that exact URL, in a tracked file, is not a
     // leak. Only that owner segment is blanked, and only when the path is this repository (memev, then .git, a slash, a quote, a
     // closing parenthesis, an angle bracket, a space or the end of the line), and only when the host is github.com itself: the
@@ -67,9 +61,8 @@ for (const f of files) {
 if (process.argv.includes('--history')) {
   const log = execFileSync('git', ['log', '--format=%H%x00%B%x00'], { cwd: root, encoding: 'utf8' }).split('\0');
   for (let i = 0; i + 1 < log.length; i += 2) {
-    const sha = log[i].trim(); const lines = log[i + 1].split('\n'); const skip = ALLOW_COMMIT_LINE.get(sha);
-    if (skip) lines[skip - 1] = '';
-    scanText(`commit ${sha.slice(0, 10)}`, lines.join('\n'));
+    const sha = log[i].trim();
+    scanText(`commit ${sha.slice(0, 10)}`, log[i + 1]);
   }
 }
 if (findings.length) { console.error(`leak scan: ${findings.length} finding(s)`); for (const f of findings) console.error(`  ${f}`); process.exit(1); }
