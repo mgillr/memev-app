@@ -48,7 +48,7 @@ final class GuideController: NSObject {
     for v in [text, choices, entry, apps, backupTick, detail, back] as [NSView] { view.addArrangedSubview(v) }
   }
 
-  func paint(_ p: Palette) {
+  func paint(_ p: Theme) {
     text.textColor = p.text
     detail.textColor = p.warn
     thisButton.selectedState = firstComputer == 1
