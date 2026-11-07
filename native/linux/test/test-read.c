@@ -238,12 +238,39 @@ static void test_missing(void) {
   expect(strcmp(sentence, "Memev is not on this computer yet.") == 0, sentence);
 }
 
+/* card --json starts a stopped Memev, so the glance reads it only when status said Memev runs: a stopped core stays stopped */
+static void test_stopped_core_is_not_started(void) {
+  char dir[64];
+  strcpy(dir, "/tmp/memev-stopped-XXXXXX");
+  expect(mkdtemp(dir) != NULL, "mkdtemp");
+  char path[512];
+  snprintf(path, sizeof path, "%s/memev", dir);
+  write_text(path,
+    "#!/bin/sh\n"
+    "d=$(CDPATH= cd -- \"$(dirname \"$0\")\" && pwd)\n"
+    "case \"$1\" in\n"
+    "  status) echo '{\"running\":false}'; exit 1 ;;\n"
+    "  card) : > \"$d/card-called\"; echo '{\"project\":\"demo\"}' ;;\n"
+    "  *) exit 2 ;;\n"
+    "esac\n");
+  chmod(path, 0755);
+  setenv("MEMEV_BIN", path, 1);
+  setenv("MEMEV_HEALTH_URL", "off", 1);
+  MemevGlance g;
+  memev_load_glance(&g);
+  expect(!g.daemon_up, "a stopped core reads as stopped");
+  expect(g.project[0] == 0, "no project is read from a stopped core");
+  snprintf(path, sizeof path, "%s/card-called", dir);
+  expect(access(path, F_OK) != 0, "card was not run against a stopped core (it would start it)");
+}
+
 int main(void) {
   test_json();
   test_urls();
   test_http();
   test_glance();
   test_health_only();
+  test_stopped_core_is_not_started();
   test_missing();
   printf("read tests passed\n");
   return 0;

@@ -539,8 +539,9 @@ int memev_load_glance(MemevGlance *g) {
   char *doctor_argv[] = {bin, "doctor", "--json", NULL};
   if (memev_capture(bin, doctor_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out))
     load_checks(g, out);
+  /* card --json starts a stopped Memev, so a stopped one is left stopped: it is read only when status said Memev runs */
   char *card_argv[] = {bin, "card", "--json", NULL};
-  if (memev_capture(bin, card_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out)) {
+  if (g->daemon_up && memev_capture(bin, card_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out)) {
     char tmp[200];
     if (memev_json_get(out, "project", tmp, sizeof tmp) == 0 && plain_label(tmp, 79))
       copy_into(g->project, sizeof g->project, tmp);

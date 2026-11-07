@@ -14,7 +14,26 @@ func memevRun(_ args: [String], timeout: Int = 10000) -> (Int, String) {
   return (Int(code), String(cString: buf))
 }
 
+/// The reads that start a stopped Memev (trial core 7f828aca, each run on a stopped vault): card, bus roster, review, audit,
+/// recall and contract. The window never starts Memev by reading: these run only while status says it is running.
+func startsCore(_ args: [String]) -> Bool {
+  guard let a = args.first else { return false }
+  return ["card", "review", "audit", "recall", "contract"].contains(a) || (a == "bus" && args.dropFirst().first == "roster")
+}
+
+/// Whether Memev is stopped: status --json says running false (it exits 1 then). A core that does not answer at all is not
+/// called stopped, so its pages still say it did not answer. status never starts Memev itself.
+func coreStopped() -> Bool {
+  let (_, out) = memevRun(["status", "--json"], timeout: 5000)
+  guard let d = out.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return false }
+  return j["running"] as? Bool == false
+}
+
+/// What a section says when its read gave nothing: stopped, or no answer.
+func noAnswer(_ what: String) -> String { coreStopped() ? "Memev is stopped, so this is not read. Start it to see it." : "\(what) did not answer." }
+
 func memevJSON(_ args: [String]) -> Any? {
+  if startsCore(args) && coreStopped() { return nil }
   let (code, out) = memevRun(args)
   guard code == 0, let d = out.data(using: .utf8) else { return nil }
   return try? JSONSerialization.jsonObject(with: d)
@@ -118,7 +137,7 @@ enum Pages {
           return PageRow(title: safe(str(h["snippet"])), sub: safe(str(h["heading"])) + (proj.isEmpty ? "" : " · \(proj)"), tone: 0)
         }, empty: "Nothing matched.", tab: "search", source: recall))
       } else {
-        d.sections.append(PageSection(head: "SEARCH", rows: [], empty: "The search did not answer.", tab: "search", source: recall))
+        d.sections.append(PageSection(head: "SEARCH", rows: [], empty: noAnswer("The search"), tab: "search", source: recall))
       }
     }
     let review = "memev review list --json"
@@ -131,14 +150,14 @@ enum Pages {
       d.sentences["review"] = n == 0 ? "Nothing is waiting for review." : "\(plural(n, "memory", "memories")) to review. Keep what is still true, drop what is not."
       d.sentences["search"] = n == 0 ? "Search everything your AI apps have saved." : "Search everything your AI apps have saved. \(n) to review."
     } else {
-      d.sections.append(PageSection(head: "REVIEW", rows: [], empty: "The review list did not answer.", tab: "review", source: review))
+      d.sections.append(PageSection(head: "REVIEW", rows: [], empty: noAnswer("The review list"), tab: "review", source: review))
     }
     if let a = memevJSON(["audit", "--json"]) as? [String: Any] {
       d.sections.append(PageSection(head: "CLEAN-UP", rows: [
         PageRow(title: "\(str(a["memories"])) memories, \(str(a["likely_junk"])) likely junk", sub: str(a["next"]), tone: 0),
       ], empty: "", tab: "review", source: "memev audit --json"))
     } else {
-      d.sections.append(PageSection(head: "CLEAN-UP", rows: [], empty: "The clean-up report did not answer.", tab: "review", source: "memev audit --json"))
+      d.sections.append(PageSection(head: "CLEAN-UP", rows: [], empty: noAnswer("The clean-up report"), tab: "review", source: "memev audit --json"))
     }
     return d
   }
@@ -146,8 +165,8 @@ enum Pages {
   static func checked() -> PageData {
     let src = "memev contract list"
     guard let r = memevJSON(["contract", "list"]) as? [String: Any], let list = r["contracts"] as? [[String: Any]] else {
-      return PageData(sections: [PageSection(head: "CONTRACTS", rows: [], empty: "The contract list did not answer.", source: src)],
-                      sentences: ["": "The contract list did not answer."])
+      return PageData(sections: [PageSection(head: "CONTRACTS", rows: [], empty: noAnswer("The contract list"), source: src)],
+                      sentences: ["": noAnswer("The contract list")])
     }
     // contracts.mjs contractList(): state is done (its verify passed, with a receipt), open (signed, not verified yet), superseded or draft
     let words = ["done": "checked: its verify passed", "open": "signed, not checked yet", "superseded": "replaced by a newer version", "draft": "a draft, not signed"]
@@ -216,7 +235,7 @@ enum Pages {
       d.sentences["team"] = s
       d.counts["quiet"] = quiet.count
     } else {
-      d.sections.append(PageSection(head: "TEAM", rows: [], empty: "The roster did not answer.", tab: "team", source: rosterSrc))
+      d.sections.append(PageSection(head: "TEAM", rows: [], empty: noAnswer("The roster"), tab: "team", source: rosterSrc))
     }
     let devSrc = "memev devices list --json"
     if let r = memevJSON(["devices", "list", "--json"]) as? [String: Any], let devs = r["devices"] as? [[String: Any]] {
