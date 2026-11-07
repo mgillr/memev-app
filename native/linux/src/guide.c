@@ -236,6 +236,29 @@ static void scrub(const char *src, char *dst, size_t n) {
   dst[o] = 0;
 }
 
+/* init and join end with a checklist; when one fails, the lines marked as failed (U+2717) say why, not the last lines.
+   Writes those lines to dst, or all of src when none is marked. */
+static const char *failed_lines(const char *src, char *dst, size_t n) {
+  size_t o = 0;
+  for (const char *line = src; *line && n > 0;) {
+    const char *end = strchr(line, '\n');
+    size_t len = end ? (size_t)(end - line) : strlen(line);
+    const char *p = line;
+    while (p < line + len && (*p == ' ' || *p == '\t')) p++;
+    if ((size_t)(line + len - p) >= 3 && memcmp(p, "\xE2\x9C\x97", 3) == 0) {
+      size_t take = (size_t)(line + len - p);
+      if (o > 0 && o + 1 < n) dst[o++] = '\n';
+      if (take > n - 1 - o) take = n - 1 - o;
+      memcpy(dst + o, p, take);
+      o += take;
+    }
+    if (!end) break;
+    line = end + 1;
+  }
+  if (n > 0) dst[o] = 0;
+  return o > 0 ? dst : src;
+}
+
 int guide_apply(const GuidePlan *plan, const char *bin, char *detail, size_t detailn) {
   if (detail && detailn) detail[0] = 0;
   if (!bin || !bin[0]) return -1;
@@ -265,8 +288,8 @@ int guide_apply(const GuidePlan *plan, const char *bin, char *detail, size_t det
       return -1;
     }
     if (rc != 0 || code != 0) {
-      char bit[200];
-      scrub(out, bit, sizeof bit);
+      char bit[200], bad[1024];
+      scrub(failed_lines(out, bad, sizeof bad), bit, sizeof bit);
       if (detail) snprintf(detail, detailn, "The command %s stopped. %s", cmds[i].arg[1], bit);
       return -1;
     }

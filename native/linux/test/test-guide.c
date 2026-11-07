@@ -152,10 +152,11 @@ static void test_apply_reason(void) {
   expect(mkdtemp(dir) != NULL, "mkdtemp");
   char bin[256];
   snprintf(bin, sizeof bin, "%s/memev", dir);
-  for (int round = 0; round < 2; round++) {
+  for (int round = 0; round < 3; round++) {
     FILE *f = fopen(bin, "w");
     expect(f != NULL, "fake core");
     if (round == 0) fprintf(f, "#!/bin/sh\ncase \"$1\" in\n  init) echo 'cannot write the notes folder' >&2; exit 1 ;;\n  *) exit 0 ;;\nesac\n");
+    else if (round == 2) fprintf(f, "#!/bin/sh\ncase \"$1\" in\n  init) printf '  \\342\\234\\223 Memev running\\n  \\342\\234\\227 Agent comms bus: not set up\\n  \\342\\234\\223 Notes folder\\n  - last line\\n'; exit 1 ;;\n  *) exit 0 ;;\nesac\n");
     else fprintf(f, "#!/bin/sh\ncase \"$1\" in\n  init) sleep 3 ;;\n  *) exit 0 ;;\nesac\n");
     fclose(f);
     chmod(bin, 0755);
@@ -168,7 +169,9 @@ static void test_apply_reason(void) {
     int rc = guide_apply(&plan, bin, detail, sizeof detail);
     unsetenv("MEMEV_GUIDE_TIMEOUT_MS");
     if (round == 0) expect(rc != 0 && strstr(detail, "cannot write the notes folder") != NULL, "the core's reason reaches the detail");
-    else expect(rc != 0 && strstr(detail, "took longer than") != NULL, "a command past its limit says it was stopped");
+    else if (round == 1) expect(rc != 0 && strstr(detail, "took longer than") != NULL, "a command past its limit says it was stopped");
+    else expect(rc != 0 && strstr(detail, "Agent comms bus: not set up") != NULL && strstr(detail, "last line") == NULL && strstr(detail, "Notes folder") == NULL,
+                "a failed checklist shows its failed lines, not the last ones");
   }
   unlink(bin);
   rmdir(dir);
