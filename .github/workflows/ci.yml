@@ -17,7 +17,7 @@ jobs:
           node-version: 22
       - run: node scripts/leak-scan.mjs --history
       - run: node scripts/fence.mjs
-      - run: node --test test/fence.test.mjs
+      - run: node --test test/fence.test.mjs test/leak-scan.test.mjs
   native-linux:
     runs-on: ubuntu-latest
     steps:
