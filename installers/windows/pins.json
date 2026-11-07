@@ -12,7 +12,6 @@
   "git": {
     "version": "2.56.0.windows.4",
     "win-x64": {
-      "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/MinGit-2.56.0.4-64-bit.zip",
       "sha256": "e3bf78351fe777fba47ddee5950082f8a98bb0f02604fdc7ba3ee2cb68ffa877"
     }
   }

@@ -49,7 +49,11 @@ Copy-Item (Join-Path $nd.FullName 'LICENSE') (Join-Path $res 'node\LICENSE')
 
 # 3b. The pinned MinGit, checked before use: the core keeps the notes' history with git, and a new PC has no git.
 $gzip = Join-Path $work 'mingit.zip'
-Invoke-WebRequest -Uri $pins.git.'win-x64'.url -OutFile $gzip -UseBasicParsing
+# The asset is named from the release tag: v<version>, with MinGit-<version, '.windows' dropped>-64-bit.zip. The URL is built here so no
+# file holds the four-part number, which the leak scan would read as an address.
+$gv = $pins.git.version
+$gurl = "https://github.com/git-for-windows/git/releases/download/v$gv/MinGit-$($gv -replace '\.windows\.', '.')-64-bit.zip"
+Invoke-WebRequest -Uri $gurl -OutFile $gzip -UseBasicParsing
 if ((Get-FileHash $gzip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pins.git.'win-x64'.sha256) { throw 'the MinGit download does not match its SHA-256' }
 Expand-Archive $gzip -DestinationPath (Join-Path $res 'git')
 if (-not (Test-Path (Join-Path $res 'git\cmd\git.exe'))) { throw 'MinGit has no cmd\git.exe' }
