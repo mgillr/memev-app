@@ -255,7 +255,10 @@ public static class Core
   }
 
   // Run bin with args, stdout captured (at most 256 KiB), stderr dropped. Done is false when it ran out of time, and it is then killed.
-  public static Result Capture(string bin, string[] args, int timeoutMs, IDictionary<string, string>? env = null)
+  public static Result Capture(string bin, string[] args, int timeoutMs, IDictionary<string, string>? env = null) => Capture(bin, args, timeoutMs, env, false);
+
+  // keepErr: the guide's setup commands keep the last of stderr too, so a failed step says why (the caller scrubs it)
+  public static Result Capture(string bin, string[] args, int timeoutMs, IDictionary<string, string>? env, bool keepErr)
   {
     var psi = Prepare(bin, args, env);
     if (psi == null) return new Result(true, 126, "");
@@ -266,12 +269,17 @@ public static class Core
     {
       // stderr is drained and dropped, as read.c sends it to /dev/null. Every wait below has the deadline: WaitForExit(int) does not
       // wait for the streams, so a grandchild that keeps stdout or stderr open cannot hold this past timeoutMs, as it cannot in read.c.
-      p.ErrorDataReceived += (_, _) => { };
+      var err = new System.Text.StringBuilder();
+      p.ErrorDataReceived += (_, e) => { if (keepErr && e.Data != null) lock (err) { if (err.Length < 16384) err.Append(e.Data).Append('\n'); } };
       p.BeginErrorReadLine();
       var outTask = ReadCapped(p.StandardOutput.BaseStream, 262143);
       var clock = Stopwatch.StartNew();
       if (p.WaitForExit(timeoutMs) && outTask.Wait(Math.Max(0, timeoutMs - (int)clock.ElapsedMilliseconds)))
-        return new Result(true, p.ExitCode, outTask.Result);
+      {
+        p.WaitForExit(); // let the error stream finish
+        string tail; lock (err) tail = err.ToString();
+        return new Result(true, p.ExitCode, keepErr && tail.Length > 0 ? outTask.Result + "\n" + tail : outTask.Result);
+      }
       try { p.Kill(true); } catch (InvalidOperationException) { }
       p.WaitForExit(1000);
       return new Result(false, 128, "");

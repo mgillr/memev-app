@@ -136,7 +136,10 @@ public static class Guide
     if (cmds == null) { detail = why.Length > 0 ? why : "The steps are not ready."; return false; }
     foreach (string[] args in cmds)
     {
-      var r = Core.Capture(bin, args, args[0] == "init" ? 20000 : 10000);
+      // a first init on Windows starts Node and git while the virus scanner checks them, and makes the vault: it can take minutes
+      int limit = args[0] == "init" ? 300000 : args[0] == "join" ? 300000 : 60000;
+      var r = Core.Capture(bin, args, limit, null, true);
+      if (!r.Done) { detail = $"The command {args[0]} took longer than {limit / 1000} seconds, so it was stopped. Try again; if it happens twice, open Health."; return false; }
       if (r.Done && r.ExitCode == 126) { detail = "That folder, address or code holds a character this window will not pass to the core: \" % ! & | < > ^ ( ). Choose one without it."; return false; }
       if (!r.Done || r.ExitCode != 0) { detail = $"The command {args[0]} stopped. {Scrub(r.Output)}".TrimEnd(); return false; }
       if (args[0] == "recall" && !r.Output.Contains(plan.Phrase, StringComparison.Ordinal)) { detail = "Recall did not return the note just saved."; return false; }
