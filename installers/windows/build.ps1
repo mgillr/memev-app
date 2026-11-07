@@ -60,8 +60,11 @@ if (-not (Test-Path (Join-Path $res 'git\cmd\git.exe'))) { throw 'MinGit has no 
 
 # 4. The memev command inside the app, which the window uses when MEMEV_BIN is not set.
 # The bundled git comes first on PATH, for this command and everything the core starts; setlocal keeps that from the caller.
-Set-Content -Path (Join-Path $res 'bin\memev.cmd') -Encoding ascii -Value @('@setlocal', '@set "PATH=%~dp0..\git\cmd;%PATH%"', '@"%~dp0..\node\node.exe" "%~dp0..\core\bin\memev.mjs" %*')
-Set-Content -Path (Join-Path $res 'PINS.txt') -Encoding ascii -Value @("memev $($pins.memev_commit)", "node $($pins.node.version) win-x64", "git $($pins.git.version) MinGit win-x64")
+# MEMEV_TOOLS_PATH names the same folder for the launchers the core writes for AI apps and the login service, so they find
+# this git too (the core's side lands with core/launcher-tools-path). GIT_CONFIG_NOSYSTEM keeps MinGit's own etc/gitconfig
+# (core.autocrlf=true, and an include of the PC's Program Files git config) out of the notes' history.
+Set-Content -Path (Join-Path $res 'bin\memev.cmd') -Encoding ascii -Value @('@setlocal', '@set "MEMEV_TOOLS_PATH=%~dp0..\git\cmd"', '@set "PATH=%~dp0..\git\cmd;%PATH%"', '@set "GIT_CONFIG_NOSYSTEM=1"', '@"%~dp0..\node\node.exe" "%~dp0..\core\bin\memev.mjs" %*')
+Set-Content -Path (Join-Path $res 'PINS.txt') -Encoding ascii -Value @("memev $($pins.memev_commit)", "node $($pins.node.version) win-x64", "git $($pins.git.version) MinGit win-x64", "git source: https://github.com/git-for-windows/git/releases/tag/v$($pins.git.version)")
 
 # 5. The installer.
 $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source

@@ -39,8 +39,10 @@ $notes = Join-Path $t 'home\notes'
 try {
   & cmd.exe /d /c "`"$bin`" init --root `"$notes`" --local-only --no-connect --no-service --port $port"
   if ($LASTEXITCODE -ne 0) { throw "init exited $LASTEXITCODE" }
-  & $git -C $notes rev-parse --git-dir 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'init made no git repository with the bundled git' }
+  # the repository is the notes folder itself: git is pointed at its .git, so it cannot walk up into a parent folder's
+  if (-not (Test-Path (Join-Path $notes '.git'))) { throw 'init made no git repository in the notes folder' }
+  & $git --git-dir (Join-Path $notes '.git') rev-parse --git-dir 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'the bundled git cannot read the notes repository' }
   $status = (& cmd.exe /d /c "`"$bin`" status --json") -join "`n" | ConvertFrom-Json
   if (-not $status.version) { throw 'status gave no version' }
   Write-Output "core $($status.version)"
@@ -71,10 +73,12 @@ $rc = $LASTEXITCODE
 & cmd.exe /d /c "`"$bin`" stop" 2>$null | Out-Null
 if ($rc -ne 0) { throw "the first-launch proof exited $rc" }
 # the bundled git reads the notes: they are a repository with a commit, and no remote was recorded
-$head = (& $git -C (Join-Path $t 'proof-notes') rev-parse --verify HEAD 2>&1) -join ' '
+$pgit = Join-Path $t 'proof-notes\.git'
+if (-not (Test-Path $pgit)) { throw 'the first launch made no git repository in its notes folder' }
+$head = (& $git --git-dir $pgit rev-parse --verify HEAD 2>&1) -join ' '
 if ($LASTEXITCODE -ne 0) { throw "the first launch made no commit with the bundled git: $head" }
 Write-Output "notes commit $head"
-& $git -C (Join-Path $t 'proof-notes') remote get-url origin 2>$null | Out-Null
+& $git --git-dir $pgit remote get-url origin 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'a remote was recorded without a tick' }
 
 # Uninstall: nothing from the install keeps running, and the notes stay.
@@ -87,6 +91,7 @@ Start-Sleep -Seconds 3
 $left = @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($dir, [System.StringComparison]::OrdinalIgnoreCase) })
 if ($left.Count -gt 0) { $left | Format-Table Id, Path | Out-String | Write-Output; throw 'a process from the install is still running after uninstall' }
 if (Test-Path $exe) { throw 'the window is still installed after uninstall' }
+if (Test-Path (Join-Path $dir 'resources\git')) { throw 'the bundled git is still there after uninstall' }
 if (Test-Path $shortcut) { throw 'the Start menu entry is still there after uninstall' }
 if (Test-Path $key) { throw 'the uninstall entry is still there after uninstall' }
 if (-not (Test-Path $notes)) { throw 'the notes folder was not kept' }
