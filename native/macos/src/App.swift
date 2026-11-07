@@ -12,7 +12,7 @@ struct NavItem {
 
 let NAV: [NavItem] = [
   NavItem(id: "overview", label: "Overview", kind: 0, later: ""),
-  NavItem(id: "operations", label: "Operations", kind: 2, later: "Not in this slice. Live agent panes are not drawn here."),
+  NavItem(id: "operations", label: "Operations", kind: 2, later: "The live agent panes need the core's bus filters (SO-N-15), which are not on main yet. Bots and agents shows the team today."),
   NavItem(id: "projects", label: "Projects", kind: 2, later: "Not in this slice. No project list is loaded yet."),
   NavItem(id: "bots", label: "Bots and agents", kind: 2, later: "Not in this slice. The roster is not loaded yet."),
   NavItem(id: "memory", label: "Memory", kind: 2, later: "Not in this slice. Search stays on the memev command until a later slice."),
@@ -112,6 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   var rules: [NSView] = []
   var refreshItem: NSMenuItem!
   var guide: GuideController!
+  let pagesView = NSStackView()
+  let search = NSSearchField()
+  var currentPage = -1
+  var pageLoad = 0
   var inGuide = false
 
   func applicationDidFinishLaunching(_ note: Notification) {
@@ -130,6 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     if selfCheck {
+      if let want = ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_PAGE"], let i = NAV.firstIndex(where: { $0.id == want }) {
+        search.stringValue = ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_QUERY"] ?? ""
+        showPage(i)
+        return
+      }
       DispatchQueue.main.async { self.reportAndQuit() }
       return
     }
@@ -275,13 +284,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     healthView = column([healthSentence, sectionHead("CHECKS"), checks], spacing: 24)
     laterView = column([laterBody], spacing: 16)
     guide = GuideController(owner: self)
+    pagesView.orientation = .vertical
+    pagesView.alignment = .leading
+    pagesView.spacing = 12
+    pagesView.translatesAutoresizingMaskIntoConstraints = false
+    search.placeholderString = "Search your notes"
+    search.target = self
+    search.action = #selector(searchChanged(_:))
+    search.sendsSearchStringImmediately = false
+    search.translatesAutoresizingMaskIntoConstraints = false
+    search.widthAnchor.constraint(equalToConstant: 420).isActive = true
 
     pageStack.orientation = .vertical
     pageStack.alignment = .leading
     pageStack.spacing = 24
     pageStack.edgeInsets = NSEdgeInsets(top: 24, left: 36, bottom: 24, right: 36)
     pageStack.translatesAutoresizingMaskIntoConstraints = false
-    for v in [header, overviewView!, healthView!, laterView!, guide.view] as [NSView] {
+    for v in [header, overviewView!, healthView!, laterView!, guide.view, pagesView] as [NSView] {
       pageStack.addArrangedSubview(v)
       v.widthAnchor.constraint(equalTo: pageStack.widthAnchor, constant: -72).isActive = true
     }
@@ -391,7 +410,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func show(_ view: NSStackView, title: String) {
     pageTitle.stringValue = title
-    for v in [overviewView!, healthView!, laterView!, guide.view] { v.isHidden = v !== view }
+    for v in [overviewView!, healthView!, laterView!, guide.view, pagesView] { v.isHidden = v !== view }
   }
 
   func select(_ index: Int) {
@@ -415,8 +434,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     leaveGuide()
     select(index)
     let item = NAV[index]
+    currentPage = index
     if item.kind == 0 {
       show(overviewView, title: "Executive overview")
+    } else if ["projects", "bots", "memory", "checked", "settings"].contains(item.id) {
+      show(pagesView, title: item.label)
+      loadPage(item.id)
     } else {
       laterBody.stringValue = item.later
       show(laterView, title: item.label)
@@ -424,6 +447,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc func navClicked(_ sender: NSButton) { showPage(sender.tag) }
+
+  @objc func searchChanged(_ sender: Any?) { if currentPage >= 0 && NAV[currentPage].id == "memory" { loadPage("memory") } }
+
+  // A page reads the core off the main thread; a newer load replaces an older one that ends later.
+  func loadPage(_ id: String) {
+    pageLoad += 1
+    let ticket = pageLoad
+    let query = search.stringValue
+    for v in pagesView.arrangedSubviews { pagesView.removeArrangedSubview(v); v.removeFromSuperview() }
+    if id == "memory" { pagesView.addArrangedSubview(search) }
+    pagesView.addArrangedSubview(plain("Reading Memev."))
+    DispatchQueue.global(qos: .userInitiated).async {
+      let sections: [PageSection]
+      switch id {
+      case "memory": sections = Pages.memory(query: query)
+      case "checked": sections = Pages.checked()
+      case "bots": sections = Pages.bots()
+      case "projects": sections = Pages.projects()
+      default: sections = Pages.settings()
+      }
+      DispatchQueue.main.async {
+        guard ticket == self.pageLoad else { return }
+        for v in self.pagesView.arrangedSubviews where v !== self.search { self.pagesView.removeArrangedSubview(v); v.removeFromSuperview() }
+        for sec in sections {
+          let head = self.sectionHead(sec.head)
+          self.pagesView.addArrangedSubview(head)
+          head.widthAnchor.constraint(equalTo: self.pagesView.widthAnchor).isActive = true
+          if sec.rows.isEmpty && !sec.empty.isEmpty { self.pagesView.addArrangedSubview(self.plain(sec.empty)) }
+          for r in sec.rows {
+            let t = self.plain(r.title)
+            t.textColor = r.tone == 2 ? self.palette.bad : r.tone == 1 ? self.palette.warn : self.palette.text
+            self.pagesView.addArrangedSubview(t)
+            if !r.sub.isEmpty {
+              let d = self.plain(r.sub)
+              d.font = NSFont.systemFont(ofSize: 12)
+              d.textColor = self.palette.dim
+              self.pagesView.addArrangedSubview(d)
+              self.pagesView.setCustomSpacing(14, after: d)
+            }
+          }
+        }
+        self.paint()
+        if self.selfCheck, let want = ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_PAGE"], want == id { self.reportPage(id, sections) }
+      }
+    }
+  }
+
+  func reportPage(_ id: String, _ sections: [PageSection]) {
+    print("page=\(id)")
+    for s in sections { print("section=\(s.head) rows=\(s.rows.count)"); for r in s.rows.prefix(5) { print("row=\(r.title)") } }
+    var texts: [String] = []
+    walk(window.contentView!) { v in if let f = v as? NSTextField { texts.append(f.stringValue) } }
+    let leak = texts.contains { $0.contains("/Users/") || $0.contains("/var/folders/") || $0.contains("should-not-appear") }
+    print("leak=\(leak ? "present" : "absent")")
+    fflush(stdout)
+    exit(leak ? 1 : 0)
+  }
 
   // Health is not a menu row. It opens the health page directly.
   @objc func healthClicked(_ sender: NSButton) {
@@ -439,7 +519,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     show(laterView, title: "Help and support")
   }
 
-  @objc func refreshClicked(_ sender: Any?) { if inGuide { guide.next() } else { reload() } }
+  @objc func refreshClicked(_ sender: Any?) {
+    if inGuide { guide.next(); return }
+    reload()
+    if currentPage >= 0, ["projects", "bots", "memory", "checked", "settings"].contains(NAV[currentPage].id) { loadPage(NAV[currentPage].id) }
+  }
 
   // The core is read off the main thread; the window is filled on it.
   func reload() {

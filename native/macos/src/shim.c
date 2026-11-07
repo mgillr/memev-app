@@ -138,3 +138,17 @@ void memev_shim_guide_done(void) {
   FILE *f = fopen(path, "w");
   if (f) { fputs("ok\n", f); fclose(f); }
 }
+
+int memev_shim_run(const char *const *args, int argc, char *out, int outn, int timeout_ms) {
+  if (outn <= 0 || argc < 0 || argc > 30) return -1;
+  out[0] = 0;
+  char bin[4096];
+  if (memev_resolve_bin(bin, sizeof bin) != 0) return -1;
+  char *argv[32];
+  argv[0] = bin;
+  for (int i = 0; i < argc; i++) argv[i + 1] = (char *)args[i];
+  argv[argc + 1] = NULL;
+  int code = 0;
+  if (memev_capture(bin, argv, out, (size_t)outn, timeout_ms, &code) != 0) return -1;
+  return code;
+}

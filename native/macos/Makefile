@@ -7,7 +7,7 @@ TARGET := $(ARCH)-apple-macos12.0
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE
 READ := ../linux/src/read.c
 GUIDE := ../linux/src/guide.c
-SWIFT := src/main.swift src/App.swift src/Guide.swift
+SWIFT := src/main.swift src/App.swift src/Guide.swift src/Pages.swift
 
 .PHONY: all app test clean
 

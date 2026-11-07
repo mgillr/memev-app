@@ -32,6 +32,16 @@ if [ "${MEMEV_SKIP_WINDOW:-}" != 1 ]; then
   printf '%s\n' "$out" | grep -E '^overview=Memev [0-9.]+ is running' >/dev/null || { echo "the window did not read the running core" >&2; exit 1; }
   printf '%s\n' "$out" | grep -Fx 'match=1' >/dev/null
   printf '%s\n' "$out" | grep -Fx 'secret=absent' >/dev/null
+  # Each page over the live core: it answers, shows its sections and leaks no path. Memory finds a note saved just now.
+  "$bin" remember "the window reads this note" --force >/dev/null 2>&1
+  for page in memory checked bots projects settings; do
+    pout=$(MEMEV_GUIDE=off MEMEV_HEALTH_URL="http://127.0.0.1:$port/healthz" MEMEV_THEME=dark MEMEV_SELF_CHECK=1 MEMEV_SELF_CHECK_PAGE=$page \
+      MEMEV_SELF_CHECK_QUERY="window reads" "$app/Contents/MacOS/memev-desktop") || { printf '%s\n' "$pout" >&2; echo "page $page failed" >&2; exit 1; }
+    printf '%s\n' "$pout"
+    printf '%s\n' "$pout" | grep -Fx "page=$page" >/dev/null && printf '%s\n' "$pout" | grep -Fx 'leak=absent' >/dev/null || { echo "page $page: bad report" >&2; exit 1; }
+    if printf '%s\n' "$pout" | grep -E '^row=' | grep -Ei 'did not answer' >/dev/null; then echo "page $page: a command did not answer" >&2; exit 1; fi
+  done
+  printf '%s\n' "$(MEMEV_GUIDE=off MEMEV_HEALTH_URL=off MEMEV_SELF_CHECK=1 MEMEV_SELF_CHECK_PAGE=memory MEMEV_SELF_CHECK_QUERY="window reads" "$app/Contents/MacOS/memev-desktop")" | grep -F 'row=the window reads this note' >/dev/null || { echo "memory search did not find the saved note" >&2; exit 1; }
 fi
 "$bin" stop > /dev/null 2>&1 || true
 # The guided first launch, headless, against the app's own core: a fresh notes folder, a note saved and read back, and the
