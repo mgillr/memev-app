@@ -26,6 +26,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev xvfb lsof
       - name: Build and test the Linux window
         run: make -C native/linux test
+      - name: Fetch the core used for the proof
+        run: |
+          git init -q /tmp/memev-core
+          git -C /tmp/memev-core fetch --depth 1 https://github.com/mgillr/memev.git 99b12c1ee78021bab6127af524ca3eba800a9d02
+          git -C /tmp/memev-core checkout -q FETCH_HEAD
+      - name: Prove the first launch against that core
+        run: make -C native/linux real-core
   native-macos:
     strategy:
       fail-fast: false

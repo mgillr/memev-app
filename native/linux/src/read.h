@@ -38,6 +38,12 @@ int memev_http_get(const char *url, char *body, size_t bodyn, int timeout_ms);
 /* Copy a string, number or boolean at a dotted object key. 0 on a hit. */
 int memev_json_get(const char *json, const char *key, char *out, size_t outn);
 
+/* Run bin with argv (argv[0] is bin). 0 when the process ends in time. */
+int memev_capture(const char *bin, char *const argv[], char *out, size_t outn, int timeout_ms, int *exit_code);
+
+/* MEMEV_BIN, or memev on PATH. 0 when an executable was copied to out. */
+int memev_resolve_bin(char *out, size_t outn);
+
 void memev_glance_clear(MemevGlance *g);
 
 /* Read status, doctor and card from MEMEV_BIN or PATH, then loopback /healthz.
