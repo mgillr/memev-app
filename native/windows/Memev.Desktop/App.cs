@@ -97,6 +97,7 @@ sealed class MainWindow : Window
   readonly StackPanel overviewPage, healthPage, laterPage, guidePage;
   readonly TextBlock primaryLabel = new() { Text = "Refresh", Foreground = new SolidColorBrush(Theme.Ink), FontWeight = FontWeights.Medium };
   readonly Button back;
+  Button helpButton = null!;
   readonly TextBlock guideText = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap, MaxWidth = 560, HorizontalAlignment = HorizontalAlignment.Left };
   readonly TextBlock guideDetail = new() { TextWrapping = TextWrapping.Wrap, MaxWidth = 560, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0) };
   readonly TextBox guideEntry = new() { MinWidth = 420, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(6, 4, 6, 4) };
@@ -139,6 +140,7 @@ sealed class MainWindow : Window
       top.Children.Add(b);
     }
     var help = NavButton(new TextBlock { Text = "Help and support", Foreground = B(theme.NavText) }, (_, _) => ShowHelp());
+    helpButton = help;
     var column = new DockPanel { LastChildFill = false };
     DockPanel.SetDock(help, Dock.Bottom);
     column.Children.Add(help);
@@ -345,7 +347,7 @@ sealed class MainWindow : Window
     if (choiceOther != null) choiceOther.Background = which == 0 ? B(theme.Selected) : Brushes.Transparent;
   }
 
-  void SetNav(bool on) { foreach (Button b in navButtons) b.IsEnabled = on; healthButton.IsEnabled = on; }
+  void SetNav(bool on) { foreach (Button b in navButtons) b.IsEnabled = on; healthButton.IsEnabled = on; helpButton.IsEnabled = on; }
 
   void GuideShow(int step)
   {
@@ -400,17 +402,27 @@ sealed class MainWindow : Window
     }
   }
 
+  // The client list is read off the window's thread (it can take seconds), then the rows are drawn on it.
   void LoadApps()
   {
-    if (apps.Count > 0) return;
+    if (apps.Count > 0 || guideBusy) return;
     guideApps.Children.Clear();
     string? bin = Core.ResolveBin();
-    if (bin == null) return;
-    var r = Core.Capture(bin, new[] { "clients" }, 10000);
-    if (r.Done && r.ExitCode == 0) apps = Guide.ParseClients(r.Output);
-    if (apps.Count == 0) { guideApps.Children.Add(Line("The client list did not parse.")); return; }
-    foreach (GuideApp app in apps)
-      guideApps.Children.Add(new CheckBox { Content = $"{app.Name}: {app.State}", IsChecked = false, IsEnabled = app.Selectable, Tag = app.Name, Foreground = B(theme.Text), Margin = new Thickness(0, 2, 0, 2) });
+    if (bin == null) { guideApps.Children.Add(Line("The client list did not parse.")); return; }
+    guideBusy = true;
+    primary.IsEnabled = false;
+    guideApps.Children.Add(Line("Reading the core's client list."));
+    Task.Run(() => { var r = Core.Capture(bin, new[] { "clients" }, 10000); return r.Done && r.ExitCode == 0 ? Guide.ParseClients(r.Output) : new List<GuideApp>(); })
+      .ContinueWith((t) =>
+      {
+        guideBusy = false;
+        primary.IsEnabled = true;
+        apps = t.Status == TaskStatus.RanToCompletion ? t.Result : new List<GuideApp>();
+        guideApps.Children.Clear();
+        if (apps.Count == 0) { guideApps.Children.Add(Line("The client list did not parse.")); return; }
+        foreach (GuideApp app in apps)
+          guideApps.Children.Add(new CheckBox { Content = $"{app.Name}: {app.State}", IsChecked = false, IsEnabled = app.Selectable, Tag = app.Name, Foreground = B(theme.Text), Margin = new Thickness(0, 2, 0, 2) });
+      }, TaskScheduler.FromCurrentSynchronizationContext());
   }
 
   void Collect()

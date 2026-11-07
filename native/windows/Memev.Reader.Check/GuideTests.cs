@@ -60,8 +60,31 @@ static class GuideTests
     string messy = Path.Combine(tmp, ".", "x", "..", "notes") + Path.DirectorySeparatorChar;
     cmds = Guide.Build(ThisComputer(messy), out _);
     expect(cmds != null && cmds[0][2] == notes, "the folder is passed resolved");
+    // a failing core's output is shown without a token's value, in any case, wherever in the output it stands
+    {
+      string dir = Path.Combine(tmp, "leaky");
+      Directory.CreateDirectory(dir);
+      string secret = "SECRETVALUE" + new string('x', 300);
+      string bin;
+      if (OperatingSystem.IsWindows())
+      {
+        bin = Path.Combine(dir, "memev.cmd");
+        File.WriteAllText(bin, $"@echo off\r\necho Token={secret}\r\nexit /b 1\r\n");
+      }
+      else
+      {
+        bin = Path.Combine(dir, "memev");
+        File.WriteAllText(bin, $"#!/bin/sh\necho 'Token={secret}'\nexit 1\n");
+        File.SetUnixFileMode(bin, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+      }
+      bool leaked = !Guide.Apply(ThisComputer(Path.Combine(dir, "notes")), bin, out string shown) && shown.Contains("SECRETVALUE", StringComparison.Ordinal);
+      expect(!leaked && !shown.Contains("xxxxxxxxxx"), $"a token's value is never shown ({shown.Length} chars)");
+    }
+
     if (OperatingSystem.IsWindows())
     {
+      foreach (string bad in new[] { @"\\?\C:\x\..", @"\\?\C:\notes", @"\\.\C:\notes", @"//?/C:/x/..", @"\\?\UNC\server\share\x" })
+        expect(Guide.Build(ThisComputer(bad), out _) == null, $"device or long-path folder refused: '{bad}'");
       foreach (string bad in new[] { @"C:\", @"C:", @"C:\..", @"\\server\share", @"\notes", @"C:notes" })
         expect(Guide.Build(ThisComputer(bad), out _) == null, $"windows folder refused: '{bad}'");
       expect(Guide.Build(ThisComputer(@"C:\a"), out _) != null, "a short full path on a drive is taken");
@@ -108,6 +131,15 @@ static class GuideTests
       expect(r.Done && r.ExitCode == 0 && r.Output.Contains(@"[C:\My Notes\x y] [two]"), $"an argument with spaces stays one argument ({r.Output.Trim()})");
       foreach (string bad in new[] { "%PATH%", "say \"hi\"", "a!b!", "a & echo INJECTED", "a | x", "a > f", "a < f", "a^b", "C:\\Program Files (x86)" })
         expect(Core.Capture(bin, new[] { bad }, 5000).ExitCode == 126, $"refused before cmd.exe: {bad}");
+      r = Core.Capture(bin, new[] { @"C:\x\", "next" }, 5000);
+      expect(r.Done && r.ExitCode == 0 && r.Output.Contains(@"[C:\x\] [next]"), $"a trailing backslash does not swallow the closing quote ({r.Output.Trim()})");
+      // a core installed under a folder whose name holds ( ) & still runs: only typed arguments are refused
+      string odd = Path.Combine(tmp, "Program Files (x86) & co");
+      Directory.CreateDirectory(odd);
+      string oddBin = Path.Combine(odd, "memev.cmd");
+      File.WriteAllText(oddBin, "@echo off\r\necho [%~1]\r\n");
+      r = Core.Capture(oddBin, new[] { "status" }, 5000);
+      expect(r.Done && r.ExitCode == 0 && r.Output.Contains("[status]"), $"a core under 'Program Files (x86) & co' runs ({r.ExitCode} {r.Output.Trim()})");
     }
   }
 }

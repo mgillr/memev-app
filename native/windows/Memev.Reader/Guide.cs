@@ -82,6 +82,9 @@ public static class Guide
   public static string? NotesFolder(string s)
   {
     if (s.Length < 2 || s.Length > 400 || s.Any((c) => c < ' ' || c == 127) || !Path.IsPathFullyQualified(s)) return null;
+    // \\?\ and \\.\ paths skip the system's own resolving, so '\\?\C:\x\..' would reach the core as a drive root
+    string lead = s.Replace('/', '\\');
+    if (lead.StartsWith(@"\\?\", StringComparison.Ordinal) || lead.StartsWith(@"\\.\", StringComparison.Ordinal)) return null;
     string full;
     try { full = Path.GetFullPath(s); } catch (Exception e) when (e is ArgumentException || e is NotSupportedException || e is PathTooLongException) { return null; }
     string trimmed = Path.TrimEndingDirectorySeparator(full);
@@ -119,9 +122,10 @@ public static class Guide
   // A failed command's last output, with a line that names a token cut there, so its value is never shown.
   static string Scrub(string s)
   {
-    string tail = s.Length > 180 ? s.Substring(s.Length - 180) : s;
-    var lines = tail.Split('\n').Select((l) => { int t = l.IndexOf("token", StringComparison.Ordinal); return t >= 0 ? l.Substring(0, t) : l; });
-    return new string(string.Join("\n", lines).Select((c) => c < ' ' && c != '\n' ? ' ' : c).ToArray());
+    // the whole output is cut at each token line first, so the last 180 characters cannot hold a value without its label
+    var lines = s.Split('\n').Select((l) => { int t = l.IndexOf("token", StringComparison.OrdinalIgnoreCase); return t >= 0 ? l.Substring(0, t) : l; });
+    string clean = new string(string.Join("\n", lines).Select((c) => c < ' ' && c != '\n' ? ' ' : c).ToArray());
+    return clean.Length > 180 ? clean.Substring(clean.Length - 180) : clean;
   }
 
   // Run the plan against bin. true when every command ends well and, on this computer, the recall holds the saved phrase.

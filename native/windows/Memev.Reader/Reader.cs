@@ -238,10 +238,11 @@ public static class Core
       // which drops the quotes. So an argument holding any character cmd.exe treats specially (" % ! & | < > ^ ( )) or a control
       // character is refused, and the rest are quoted so spaces stay inside one argument. The first launch passes typed text
       // here (a notes folder, a remote, a join code), so this is the line a command could otherwise be smuggled through.
-      foreach (string a in args.Prepend(bin))
+      // the program's own path is quoted and never typed by a person, so an install under 'Program Files (x86)' still runs
+      foreach (string a in args)
         if (a.Any((c) => "\"%!&|<>^()".Contains(c) || c < ' ')) return new Result(true, 126, "");
       psi.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-      psi.Arguments = $"/d /s /c \"{string.Join(' ', args.Prepend(bin).Select((a) => $"\"{a}\""))}\"";
+      psi.Arguments = $"/d /s /c \"{string.Join(' ', args.Prepend(bin).Select(Quote))}\"";
     }
     else
     {
@@ -265,6 +266,15 @@ public static class Core
       p.WaitForExit(1000);
       return new Result(false, 128, "");
     }
+  }
+
+  // A quoted argument for a program that splits its command line as the C runtime does: trailing backslashes are doubled, so
+  // 'C:\\x\\' does not escape the closing quote.
+  static string Quote(string a)
+  {
+    int n = 0;
+    while (n < a.Length && a[a.Length - 1 - n] == '\\') n++;
+    return "\"" + a + new string('\\', n) + "\"";
   }
 
   static async Task<string> ReadCapped(Stream s, int cap)
