@@ -63,6 +63,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   var window: NSWindow!
   var glance = memev_shim_new()!
   var loading = false
+  // Each of the first reads says when its answer is in; until then its part of the window says it is reading.
+  var glanceRead = false
+  let firstReads = DispatchGroup()
+  var readsDone = 0
+  let launched = Date()
+  var shownMs = -1
+  var starting = false
+  /// Told the core's answer to a start, once the window has read the core again (used by the self-check).
+  var onStartDone: ((Int) -> Void)?
   var selfCheck = ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK"] != nil
   var attentionRows = 0
   var checkRows = 0
@@ -125,25 +134,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     applyAppearance()
     buildMenu()
     buildWindow()
-    memev_shim_load(glance)
-    loadFacts()
+    // The window shows at once, each part saying it is reading; the core is read off the main thread and each part fills when
+    // its answer is in. A slow or stuck core no longer leaves a blank window.
     paint()
     fill()
     if memev_shim_want_guide() { guide.show(0) } else { showPage(0) }
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
+    shownMs = Int(Date().timeIntervalSince(launched) * 1000)
+    readFirst()
     if selfCheck {
       if let want = ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_PAGE"], let i = NAV.firstIndex(where: { $0.id == want }) {
         search.stringValue = ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_QUERY"] ?? ""
         showPage(i)
         return
       }
-      DispatchQueue.main.async { self.reportAndQuit() }
+      // The self-check waits for every first read, so what it prints does not depend on which answer came first.
+      firstReads.notify(queue: .main) {
+        if ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_START"] != nil { self.checkStart() } else { self.reportAndQuit() }
+      }
       return
     }
-    var ms = Int(ProcessInfo.processInfo.environment["MEMEV_POLL_MS"] ?? "") ?? 5000
-    if ms < 200 { ms = 200 }
-    Timer.scheduledTimer(withTimeInterval: Double(ms) / 1000, repeats: true) { [weak self] _ in self?.reload() }
+    firstReads.notify(queue: .main) {
+      var ms = Int(ProcessInfo.processInfo.environment["MEMEV_POLL_MS"] ?? "") ?? 5000
+      if ms < 200 { ms = 200 }
+      Timer.scheduledTimer(withTimeInterval: Double(ms) / 1000, repeats: true) { [weak self] _ in self?.reload() }
+    }
+  }
+
+  /// One read of the core off the main thread; done runs on the main thread with its answer.
+  func readOff<T>(_ work: @escaping () -> T, _ done: @escaping (T) -> Void) {
+    firstReads.enter()
+    DispatchQueue.global(qos: .userInitiated).async {
+      let v = work()
+      DispatchQueue.main.async {
+        done(v)
+        self.readsDone += 1
+        self.firstReads.leave()
+      }
+    }
+  }
+
+  /// The six first reads: the glance (status and doctor through the shared reader), status, licence and plan, card, doctor
+  /// and the roster. Each fills its own part of the window when it returns.
+  func readFirst() {
+    loading = true
+    firstReads.notify(queue: .main) { self.loading = false }
+    readOff({ () -> UnsafeMutablePointer<MemevGlance> in let g = memev_shim_new()!; memev_shim_load(g); return g }) { g in
+      let old = self.glance
+      self.glance = g
+      memev_shim_free(old)
+      self.glanceRead = true
+      self.fill()
+    }
+    readOff({ memevJSON(["status", "--json"]) as? [String: Any] }) { s in
+      self.version = str(s?["version"])
+      self.fill()
+    }
+    readOff({ (memevJSON(["license", "status", "--json"]) as? [String: Any], memevJSON(["plan", "--json"]) as? [String: Any]) }) { lp in
+      self.planLabel = str(lp.0?["tier_label"]).isEmpty ? str(lp.1?["plan"]) : str(lp.0?["tier_label"])
+      self.fill()
+    }
+    readOff({ memevJSON(["card", "--json"]) as? [String: Any] }) { c in
+      let p = str(c?["project"])
+      self.projectName = p.contains("/") ? "" : p
+      self.fill()
+    }
+    readOff({ AppDelegate.readDoctor() }) { d in
+      self.doctor = d
+      self.fill()
+    }
+    readOff({ memevJSON(["bus", "roster", "--json"]) as? [String: Any] }) { r in
+      self.roster = r
+      self.fill()
+    }
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -192,9 +256,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.mainMenu = main
   }
 
-  /// Kept for the guide: a label in the system font at a size.
+  /// Kept for the guide: a label in the design's font at a size.
   func label(_ f: NSTextField, size: CGFloat, weight: NSFont.Weight = .regular) {
-    f.font = NSFont.systemFont(ofSize: size, weight: weight)
+    f.font = Fonts.sans(size, weight)
     f.isSelectable = false
     f.translatesAutoresizingMaskIntoConstraints = false
   }
@@ -362,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ])
 
     search.placeholderString = "Search your notes"
+    search.font = TypeStyle.body.font
     search.target = self
     search.action = #selector(searchChanged(_:))
     search.sendsWholeSearchString = true
@@ -398,6 +463,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   var stopped: Bool { memev_shim_have_binary(glance) && !memev_shim_daemon_up(glance) }
 
   func sentences() -> (String, String) {
+    if !glanceRead { return ("Reading Memev.", "Reading Memev.") }
     var h = [CChar](repeating: 0, count: 256)
     var o = [CChar](repeating: 0, count: 512)
     memev_shim_health(glance, &h, Int32(h.count))
@@ -412,20 +478,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if let a = j as? [[String: Any]] { return a }
     if let o = j as? [String: Any], let a = o["checks"] as? [[String: Any]] { return a }
     return []
-  }
-
-  /// The facts the shell shows beyond the glance: the version, the plan for the foot line, the project for the menu.
-  func loadFacts() {
-    let s = memevJSON(["status", "--json"]) as? [String: Any]
-    version = str(s?["version"])
-    let lic = memevJSON(["license", "status", "--json"]) as? [String: Any]
-    let plan = memevJSON(["plan", "--json"]) as? [String: Any]
-    planLabel = str(lic?["tier_label"]).isEmpty ? str(plan?["plan"]) : str(lic?["tier_label"])
-    let c = memevJSON(["card", "--json"]) as? [String: Any]
-    let p = str(c?["project"])
-    projectName = p.contains("/") ? "" : p
-    doctor = AppDelegate.readDoctor()
-    roster = memevJSON(["bus", "roster", "--json"]) as? [String: Any]
   }
 
   func doctorEntry(_ title: String) -> [String: Any]? {
@@ -511,7 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let fine = ps.filter { $0.state == "fine" }.count
     let off = ps.filter { $0.state == "off" }.count
     let look = Int(memev_shim_look(glance))
-    healthButton.glyph.kind = stopped ? .bad : look > 0 ? .warn : .ok
+    healthButton.glyph.kind = !glanceRead ? .off : stopped ? .bad : look > 0 ? .warn : .ok
     healthButton.setAccessibilityLabel("\(health) \(fine) fine, \(off) off by choice. Open Health.")
     navButtons[3].needsYou = quietBots > 0 && !stopped
     let foots = [planLabel, version.isEmpty ? "" : "v\(version)"].filter { !$0.isEmpty }
@@ -581,7 +633,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let shown = Int(memev_shim_check_shown(glance))
     let list = ListBox()
     var rows: [RowView] = []
-    if !up {
+    if !glanceRead {
+      list.add(RowView(glyph: nil, title: "Reading Memev."))
+    } else if !up {
       list.add(RowView(glyph: stopped ? .bad : .off, title: "Nothing to list while Memev is not running."))
     } else if memev_shim_look(glance) == 0 {
       list.add(RowView(glyph: .ok, title: "All clear.", sub: "Nothing needs you. Every check the core returned is fine."))
@@ -631,6 +685,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     checkRows = 0
     let up = memev_shim_daemon_up(glance)
     let shown = Int(memev_shim_check_shown(glance))
+    if !glanceRead {
+      let l = ListBox()
+      l.add(RowView(glyph: nil, title: "Reading Memev."))
+      put(block("CHECKS", source: "memev doctor --json", [l]), in: s.content)
+      let svc = ListBox()
+      svc.add(RowView(glyph: nil, title: "Reading Memev.", code: "memev status --json", tech: technical))
+      put(block("MEMEV SERVICE", source: "memev status --json", [svc]), in: s.content)
+      return
+    }
     if stopped {
       let start = MButton("Start Memev", .secondary, rank: 2) { [weak self] in self?.startSheet() }
       let l = ListBox()
@@ -954,10 +1017,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                            groups: [DetailGroup(label: "WORDS ON THIS SCREEN", rows: d.words.map { DetailRow(title: $0.0, sub: $0.1) })]), from: nil)
   }
 
-  /// The window does not run start (it is not in native/CLI-CONTRACT.md), so the stopped banner's button says how to start Memev.
+  static let startTitle = "Start Memev?"
+
+  /// SH-10 under the owner's ruling D-1: the window starts Memev itself, after a sheet that names what changes. The main button
+  /// runs the core's own start (native/CLI-CONTRACT.md), which opens the background service for these notes and returns once
+  /// it answers or gives up.
   func startSheet() {
-    sheet.present(SheetModel(title: "Start Memev", note: "This window does not start Memev yet. Open Terminal and run memev start. Your notes are safe while it is stopped.",
-                             source: "memev start", main: "Close"))
+    sheet.present(SheetModel(title: AppDelegate.startTitle,
+                             note: "This starts Memev's background service on this Mac, so your AI apps can reach their shared memory again. It does not change your notes, and it does not make Memev start when you sign in.",
+                             source: "memev start", main: "Start Memev", onMain: { [weak self] host in self?.runStart(host) }))
+  }
+
+  /// Runs start off the main thread, shows that it is starting, then the result, and reads the core again for the health state.
+  func runStart(_ host: SheetHost) {
+    if starting { return }
+    starting = true
+    host.status.stringValue = "Starting Memev. This can take a few seconds."
+    host.mainButton?.isEnabled = false
+    statusLine.stringValue = "Starting Memev."
+    DispatchQueue.global(qos: .userInitiated).async {
+      // The core waits for its service to answer before it returns; a first open of a large vault can take longer.
+      let (code, _) = memevRun(["start"], timeout: 60000)
+      DispatchQueue.main.async {
+        self.starting = false
+        let title: String
+        let said: String
+        switch code {
+        case 0:
+          title = "Memev is running"
+          said = "Memev's background service is running on this Mac. Your AI apps can reach their shared memory."
+        case -1 where !memev_shim_have_binary(self.glance):
+          title = "Memev could not be run"
+          said = "This window could not find the memev command it runs. Nothing was started."
+        case -1:
+          title = "Memev has not answered yet"
+          said = "Memev did not answer within a minute. It may still be opening your notes; Health shows when it is running."
+        default:
+          title = "Memev did not start"
+          said = "Memev did not start (the core stopped with code \(code)). Its log on this Mac says why, and Health shows its checks."
+        }
+        self.statusLine.stringValue = title + "."
+        if host.isOpen && host.model?.title == AppDelegate.startTitle {
+          host.present(SheetModel(title: title, note: said, source: "memev start", main: "Close"))
+        }
+        self.refreshNow { self.onStartDone?(code) }
+      }
+    }
+  }
+
+  /// Reads the core again now, after a poll already under way has finished.
+  func refreshNow(_ then: @escaping () -> Void) {
+    if loading { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.refreshNow(then) }; return }
+    reload(then)
   }
 
   // MARK: Settings of this app
@@ -1001,7 +1112,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let s = self.screen(id)
         self.buildData(id, s, d)
         if self.current == id { self.render() }
-        if self.selfCheck, let want = ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_PAGE"], want == id { self.reportPage(id, d.sections) }
+        if self.selfCheck, let want = ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_PAGE"], want == id {
+          self.firstReads.notify(queue: .main) { self.reportPage(id, d.sections) }
+        }
       }
     }
   }
@@ -1028,7 +1141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   // The core is read off the main thread; the window is filled on it.
-  func reload() {
+  func reload(_ then: (() -> Void)? = nil) {
     if loading { return }
     loading = true
     DispatchQueue.global(qos: .userInitiated).async {
@@ -1046,6 +1159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.paint()
         self.fill()
         if self.inGuide { self.guide.paint(self.palette) }
+        then?()
       }
     }
   }
@@ -1056,6 +1170,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   // MARK: The self-check
+
+  /// MEMEV_SELF_CHECK_START: opens Start Memev's sheet, presses its main button, and prints what the core answered and what the
+  /// window shows once it has read the core again.
+  func checkStart() {
+    startSheet()
+    print("start_sheet=\(sheet.model?.title ?? "")|\(sheet.mainButton?.text ?? "")")
+    print("start_before=\(memev_shim_daemon_up(glance) ? "running" : "stopped")")
+    onStartDone = { code in
+      print("start_rc=\(code)")
+      print("start_result=\(self.sheet.model?.title ?? "")")
+      print("start_status=\(self.statusLine.stringValue)")
+      print("start_after=\(memev_shim_daemon_up(self.glance) ? "running" : "stopped")")
+      print("start_banner=\(self.banner.isHidden ? "hidden" : "shown")")
+      fflush(stdout)
+      exit(0)
+    }
+    sheet.mainButton?.performClick(nil)
+  }
 
   func reportAndQuit() {
     window.layoutIfNeeded()
@@ -1093,6 +1225,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     print("secret=\(secret ? "present" : "absent")")
     print("theme=\(Theme.current.dark ? "dark" : "light")")
     print("visible=\(window.isVisible ? 1 : 0)")
+    let ring = AmberRule.ringed(root)
+    print("amber_ring=\(ring ? 1 : 0)")
+    print("font_sans=\(TypeStyle.body.font.familyName ?? "")")
+    print("font_mono=\(TypeStyle.label.font.familyName ?? "")")
+    print("font_weights=\(Fonts.weightOf(TypeStyle.body.font)),\(Fonts.weightOf(TypeStyle.bodyMedium.font)),\(Fonts.weightOf(TypeStyle.wordmark.font))")
+    print("font_mono_faces=\(TypeStyle.code.font.fontName),\(TypeStyle.label.font.fontName)")
+    print("reads=\(readsDone)")
+    print("shown_ms=\(shownMs)")
     // A picture of the window for a reviewer, printed and never written to a file, only when asked for.
     if ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_PNG"] != nil, let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) {
       root.cacheDisplay(in: root.bounds, to: rep)
@@ -1126,13 +1266,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       sheet.dismiss()
       startSheet()
       let sheetAmber = AmberRule.visibleAmber(sheet)
+      let sheetRing = AmberRule.ringed(sheet)
+      print("start_sheet=\(sheet.model?.title ?? "")|\(sheet.mainButton?.text ?? "")")
       sheet.dismiss()
       print("confirm_amber=\(confirmAmber)")
       print("confirm_main=\(red ? "red" : "plain")")
       print("sheet_amber=\(sheetAmber)")
-      shellOK = most <= 1 && ps.count == 14 && healthButton.pips.arrangedSubviews.count == 14 && confirmAmber == 0 && red && sheetAmber == 1
+      print("sheet_ring=\(sheetRing ? 1 : 0)")
+      shellOK = most <= 1 && ps.count == 14 && healthButton.pips.arrangedSubviews.count == 14 && confirmAmber == 0 && red && sheetAmber == 1 && sheetRing
     }
-    let ok = match && primaryCount == 1 && w >= 1024 && h >= 700 && sw == 240 && focusable >= 9 && accel && !secret && window.isVisible && shellOK
+    let ok = match && primaryCount == 1 && ring && readsDone == 6 && w >= 1024 && h >= 700 && sw == 240 && focusable >= 9 && accel && !secret && window.isVisible && shellOK
     fflush(stdout)
     exit(ok ? 0 : 1)
   }

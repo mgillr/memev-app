@@ -14,6 +14,7 @@ The command is `MEMEV_BIN`, or `memev` on `PATH`. The window passes arguments in
 | The check step | `remember PHRASE --force` then `recall PHRASE --json` | This computer only. The phrase has to come back |
 | After the check, while the window is open | `status --json`, `doctor --json`, `card --json` | Read only |
 | The app list | `clients` | Read only. Names and states are taken from that text |
+| Start Memev, after its sheet | `start` | The person pressed Start Memev in the sheet that says it starts Memev's background service on this Mac (the owner's ruling D-1: the window runs a command itself only after a confirmation that names what it changes). `start` opens the daemon for the notes and returns when it answers. It needs no terminal and registers no login service; that is `service install`, which the window does not run |
 
 The window never runs `connect` with no app, never runs `connect` with a guessed id, never runs `push`, `github setup`, or `cloud` itself. Pushing to a recorded remote is the core's own sync, described above.
 

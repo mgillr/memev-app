@@ -123,19 +123,33 @@ final class GuideController: NSObject {
     if appsLoaded { return }
     appsLoaded = true
     for v in apps.arrangedSubviews { apps.removeArrangedSubview(v); v.removeFromSuperview() }
-    let n = Int(memev_shim_clients_load())
+    apps.addArrangedSubview(owner.plain("Reading the client list."))
+    // The core is read off the main thread, once (the shim keeps one list), and the ticks are made on it.
+    DispatchQueue.global(qos: .userInitiated).async {
+      let n = Int(memev_shim_clients_load())
+      var rows: [(String, String, Bool)] = []
+      for i in 0..<max(n, 0) {
+        rows.append((String(cString: memev_shim_client_name(Int32(i))), String(cString: memev_shim_client_state(Int32(i))),
+                     memev_shim_client_selectable(Int32(i))))
+      }
+      DispatchQueue.main.async { self.showApps(n, rows) }
+    }
+  }
+
+  func showApps(_ n: Int, _ rows: [(String, String, Bool)]) {
+    for v in apps.arrangedSubviews { apps.removeArrangedSubview(v); v.removeFromSuperview() }
     if n <= 0 {
       apps.addArrangedSubview(owner.plain(n < 0 ? "The client list could not be read." : "The client list did not parse."))
       return
     }
-    for i in 0..<n {
-      let name = String(cString: memev_shim_client_name(Int32(i)))
-      let state = String(cString: memev_shim_client_state(Int32(i)))
+    for (name, state, selectable) in rows {
       let tick = NSButton(checkboxWithTitle: "\(name): \(state)", target: nil, action: nil)
-      tick.isEnabled = memev_shim_client_selectable(Int32(i))
+      tick.font = TypeStyle.body.font
+      tick.isEnabled = selectable
       tick.identifier = NSUserInterfaceItemIdentifier(name)
       apps.addArrangedSubview(tick)
     }
+    paint(owner.palette)
   }
 
   func plan() -> UnsafeMutablePointer<GuidePlan> {

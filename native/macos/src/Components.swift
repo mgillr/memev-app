@@ -288,8 +288,10 @@ final class MButton: NSButton, Themed {
     var font = TypeStyle.bodyMedium.font
     var underline = false
     if amber {
+      // The mockup's 1 px accentRing edge (tpl.html:43): in light mode the fill alone is too faint against white (WCAG 1.4.11).
       layer?.backgroundColor = Role.accentFill.color.cgColor
-      layer?.borderWidth = 0
+      layer?.borderWidth = 1
+      layer?.borderColor = Role.accentRing.color.cgColor
       fg = Role.onAccent.color
     } else {
       switch base {
@@ -341,6 +343,20 @@ enum AmberRule {
       winner = shown.first { $0.amberRank == 2 } ?? (noPrimary ? nil : shown.last { $0.amberRank == 1 })
     }
     for b in all { b.setAmber(b === winner) }
+  }
+
+  /// Whether every filled amber button a person can see under root carries the 1 px accentRing edge.
+  static func ringed(_ root: NSView) -> Bool {
+    var ok = true
+    let want = Role.accentRing.color.usingColorSpace(.sRGB)
+    walk(root) { v in
+      guard let b = v as? NSButton, b.identifier?.rawValue == "primary", !b.isHiddenOrHasHiddenAncestor else { return }
+      let got = b.layer?.borderColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) }
+      let same = got != nil && want != nil && abs(got!.redComponent - want!.redComponent) < 0.002
+        && abs(got!.greenComponent - want!.greenComponent) < 0.002 && abs(got!.blueComponent - want!.blueComponent) < 0.002
+      if b.layer?.borderWidth != 1 || !same { ok = false }
+    }
+    return ok
   }
 
   /// The filled amber buttons a person can see under root.
@@ -689,7 +705,7 @@ final class RowView: ClickArea, Themed {
     parts.append(spacer())
     if !figure.isEmpty {
       let f = Label(figure, .body, .text)
-      f.font = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .regular)
+      f.font = Fonts.sans(14, .regular, tabular: true)
       parts.append(f)
     }
     if let b = button { parts.append(b) }

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // The rev2 colour tokens and type (native/REV2-SCREENS.md 1.12 and 1.14), with the exact hex of the mockup's latest values.
-// Fonts: the design names Space Grotesk and IBM Plex Mono. Neither ships with macOS and this repository bundles no font
-// files, so the window uses the system font and the system monospaced font at the design's sizes, weights and tracking.
+// Fonts: Space Grotesk for everything and IBM Plex Mono for labels, commands and machine text, as the design names them. Both
+// are under the SIL Open Font License and ship in the app (native/macos/fonts, with their licences and pinned SHA-256). They are
+// registered for this process at launch; when that fails the window uses the system fonts at the same sizes and weights.
 import AppKit
 
 func hex(_ v: UInt32, _ alpha: CGFloat = 1) -> NSColor {
@@ -10,7 +11,7 @@ func hex(_ v: UInt32, _ alpha: CGFloat = 1) -> NSColor {
 
 struct Theme {
   let dark: Bool
-  let page, panel, raise, line, rule, ctl, text, sub, dim, accent, accentFill, onAccent, good, warn, bad, series, sample: NSColor
+  let page, panel, raise, line, rule, ctl, text, sub, dim, accent, accentFill, onAccent, accentRing, good, warn, bad, series, sample: NSColor
   let scrim: NSColor
   let shadowOpacity: Float
   let shadowRadius: CGFloat
@@ -19,13 +20,13 @@ struct Theme {
   static let darkTokens = Theme(
     dark: true, page: hex(0x080B10), panel: hex(0x121822), raise: hex(0x1B222D), line: hex(0x2B3543), rule: hex(0x374252),
     ctl: hex(0x6B7789), text: hex(0xE8ECF2), sub: hex(0xA4ADBA), dim: hex(0x8A94A2), accent: hex(0xF2B544), accentFill: hex(0xF2B544),
-    onAccent: hex(0x0A0D12), good: hex(0x5FD08F), warn: hex(0xF2B544), bad: hex(0xFF8A7A), series: hex(0x7F8B9A), sample: hex(0x5C6877),
+    onAccent: hex(0x0A0D12), accentRing: hex(0xF2B544), good: hex(0x5FD08F), warn: hex(0xF2B544), bad: hex(0xFF8A7A), series: hex(0x7F8B9A), sample: hex(0x5C6877),
     scrim: NSColor(srgbRed: 4 / 255, green: 6 / 255, blue: 9 / 255, alpha: 0.62), shadowOpacity: 0.5, shadowRadius: 24, shadowY: 16)
 
   static let lightTokens = Theme(
     dark: false, page: hex(0xEFF1F5), panel: hex(0xFFFFFF), raise: hex(0xE8EBF0), line: hex(0xD6DBE3), rule: hex(0xC3CAD4),
     ctl: hex(0x7C8797), text: hex(0x10151C), sub: hex(0x46505E), dim: hex(0x5F6978), accent: hex(0x8A5600), accentFill: hex(0xF2B544),
-    onAccent: hex(0x0A0D12), good: hex(0x1D6B43), warn: hex(0x8A5600), bad: hex(0xB3261E), series: hex(0x8590A0), sample: hex(0xA3ADB9),
+    onAccent: hex(0x0A0D12), accentRing: hex(0x8A5600), good: hex(0x1D6B43), warn: hex(0x8A5600), bad: hex(0xB3261E), series: hex(0x8590A0), sample: hex(0xA3ADB9),
     scrim: NSColor(srgbRed: 16 / 255, green: 21 / 255, blue: 28 / 255, alpha: 0.32), shadowOpacity: 0.10, shadowRadius: 12, shadowY: 8)
 
   /// The theme in use. Every themed view reads it in applyTheme().
@@ -38,7 +39,7 @@ struct Theme {
 
 /// A colour by its token name, resolved against the current theme.
 enum Role {
-  case page, panel, raise, line, rule, ctl, text, sub, dim, accent, accentFill, onAccent, good, warn, bad, series, sample, clear
+  case page, panel, raise, line, rule, ctl, text, sub, dim, accent, accentFill, onAccent, accentRing, good, warn, bad, series, sample, clear
 
   var color: NSColor {
     let t = Theme.current
@@ -55,6 +56,7 @@ enum Role {
     case .accent: return t.accent
     case .accentFill: return t.accentFill
     case .onAccent: return t.onAccent
+    case .accentRing: return t.accentRing
     case .good: return t.good
     case .warn: return t.warn
     case .bad: return t.bad
@@ -73,9 +75,7 @@ struct TypeStyle {
   let tracking: CGFloat // in points
   let mono: Bool
 
-  var font: NSFont {
-    mono ? NSFont.monospacedSystemFont(ofSize: size, weight: weight) : NSFont.systemFont(ofSize: size, weight: weight)
-  }
+  var font: NSFont { mono ? Fonts.mono(size, weight) : Fonts.sans(size, weight) }
 
   static let pageTitle = TypeStyle(size: 28, line: 36, weight: .medium, tracking: -0.56, mono: false)
   static let panelTitle = TypeStyle(size: 20, line: 28, weight: .medium, tracking: -0.2, mono: false)
@@ -90,6 +90,78 @@ struct TypeStyle {
   static let label = TypeStyle(size: 12, line: 16, weight: .medium, tracking: 0.72, mono: true) // 0.06em at 12 px
   static let code = TypeStyle(size: 12, line: 16, weight: .regular, tracking: 0, mono: true)
   static let codeBlock = TypeStyle(size: 12, line: 20, weight: .regular, tracking: 0, mono: true)
+}
+
+/// The design's two families, registered from the app's own fonts folder. Each falls back to the system font on its own.
+enum Fonts {
+  static let files = ["SpaceGrotesk-wght.ttf", "IBMPlexMono-Regular.ttf", "IBMPlexMono-Medium.ttf"]
+  static let sansFamily = "Space Grotesk"
+  static let monoFamily = "IBM Plex Mono"
+  /// The variation axis 'wght' of Space Grotesk, which is one variable font from 300 to 700.
+  static let weightAxis = NSNumber(value: 0x7767_6874)
+  private(set) static var sansBundled = false
+  private(set) static var monoBundled = false
+  private static var cache: [String: NSFont] = [:]
+
+  /// Registers the bundled fonts for this process only. Call it before any view is made.
+  static func register() {
+    if let dir = Bundle.main.resourceURL?.appendingPathComponent("fonts") {
+      for f in files {
+        var err: Unmanaged<CFError>?
+        if !CTFontManagerRegisterFontsForURL(dir.appendingPathComponent(f) as CFURL, .process, &err) { _ = err?.takeRetainedValue() }
+      }
+    }
+    // A font counts only when the font that comes back is of the bundled family, not a stand-in the system picked.
+    sansBundled = sansFont(14, 400)?.familyName == sansFamily
+    monoBundled = NSFont(name: "IBMPlexMono-Regular", size: 12)?.familyName == monoFamily
+      && NSFont(name: "IBMPlexMono-Medium", size: 12)?.familyName == monoFamily
+    cache = [:]
+  }
+
+  static func cssWeight(_ w: NSFont.Weight) -> Int {
+    switch w {
+    case .light: return 300
+    case .medium: return 500
+    case .semibold: return 600
+    case .bold: return 700
+    default: return 400
+    }
+  }
+
+  private static func sansFont(_ size: CGFloat, _ weight: Int) -> NSFont? {
+    let d = NSFontDescriptor(fontAttributes: [.family: sansFamily, .variation: [weightAxis: NSNumber(value: weight)]])
+    return NSFont(descriptor: d, size: size)
+  }
+
+  /// Space Grotesk at a size and weight; tabular gives figures one width (the mockup's tabular-nums).
+  static func sans(_ size: CGFloat, _ weight: NSFont.Weight, tabular: Bool = false) -> NSFont {
+    let key = "s\(size)/\(weight.rawValue)/\(tabular)"
+    if let f = cache[key] { return f }
+    var f = sansBundled ? (sansFont(size, cssWeight(weight)) ?? NSFont.systemFont(ofSize: size, weight: weight)) : NSFont.systemFont(ofSize: size, weight: weight)
+    if tabular {
+      let d = f.fontDescriptor.addingAttributes([.featureSettings: [[NSFontDescriptor.FeatureKey.typeIdentifier: kNumberSpacingType,
+                                                                     NSFontDescriptor.FeatureKey.selectorIdentifier: kMonospacedNumbersSelector]]])
+      f = NSFont(descriptor: d, size: size) ?? f
+    }
+    cache[key] = f
+    return f
+  }
+
+  /// IBM Plex Mono at a size: Medium at weight 500 and above, Regular below.
+  static func mono(_ size: CGFloat, _ weight: NSFont.Weight) -> NSFont {
+    let key = "m\(size)/\(weight.rawValue)"
+    if let f = cache[key] { return f }
+    let name = cssWeight(weight) >= 500 ? "IBMPlexMono-Medium" : "IBMPlexMono-Regular"
+    let f = (monoBundled ? NSFont(name: name, size: size) : nil) ?? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+    cache[key] = f
+    return f
+  }
+
+  /// The weight a Space Grotesk font is set to, for the self-check; 0 for any other font.
+  static func weightOf(_ f: NSFont) -> Int {
+    guard f.familyName == sansFamily, let v = CTFontCopyVariation(f) as? [NSNumber: NSNumber] else { return 0 }
+    return v[weightAxis]?.intValue ?? 0
+  }
 }
 
 /// A view that repaints itself from Theme.current.
