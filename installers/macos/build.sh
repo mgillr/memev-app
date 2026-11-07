@@ -54,16 +54,35 @@ mkdir -p "$res/node/bin"
 cp "$nd/bin/node" "$res/node/bin/node"
 cp "$nd/LICENSE" "$res/node/LICENSE"
 
-# 4. The memev command inside the app, which the window uses when MEMEV_BIN is not set.
+# 4. git, built here from its pinned source, so the Mac needs no developer tools. It links only libraries every Mac has, and finds
+#    its own helpers relative to itself (RUNTIME_PREFIX), so it runs from inside the app wherever the app is.
+gurl=$(pin git.url)
+gsum=$(pin git.sha256)
+curl --proto '=https' --tlsv1.2 -fsSL "$gurl" -o "$work/git.tgz"
+[ "$(shasum -a 256 "$work/git.tgz" | awk '{print $1}')" = "$gsum" ] || { echo "the git source does not match its SHA-256" >&2; exit 1; }
+tar -xzf "$work/git.tgz" -C "$work"
+gsrc=$(find "$work" -maxdepth 1 -type d -name 'git-*' | head -1)
+make -C "$gsrc" -j4 prefix=/ RUNTIME_PREFIX=YesPlease NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1 NO_INSTALL_HARDLINKS=1 \
+  INSTALL_SYMLINKS=1 DESTDIR="$res/git" install >"$work/git-build.log" 2>&1 || { tail -20 "$work/git-build.log" >&2; exit 1; }
+cp "$gsrc/COPYING" "$res/git/COPYING"
+if otool -L "$res/git/bin/git" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/Library/)' >/dev/null; then
+  echo "the bundled git links a library outside the system" >&2
+  exit 1
+fi
+
+# 5. The memev command inside the app, which the window uses when MEMEV_BIN is not set.
 cat > "$res/bin/memev" <<'SH'
 #!/bin/sh
 here=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+# the app's own git comes first, so the core never reaches for the system's
+PATH="$here/git/bin:$PATH"
+export PATH
 exec "$here/node/bin/node" "$here/core/bin/memev.mjs" "$@"
 SH
 chmod +x "$res/bin/memev"
-printf '%s\n' "memev $commit" "node $(pin node.version) darwin-$arch" > "$res/PINS.txt"
+printf '%s\n' "memev $commit" "node $(pin node.version) darwin-$arch" "git $(pin git.version)" > "$res/PINS.txt"
 
-# 5. The disk image: the app and a link to Applications.
+# 6. The disk image: the app and a link to Applications.
 ln -s /Applications "$work/stage/Applications"
 out=$dist/Memev-$version-macos-$arch.dmg
 rm -f "$out"

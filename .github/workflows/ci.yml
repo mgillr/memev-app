@@ -72,3 +72,10 @@ jobs:
         run: installers/macos/build.sh
       - name: Install, start, read, stop and uninstall
         run: make -C native/macos proof && MEMEV_PROOF=native/macos/proof installers/macos/test/install-check.sh installers/macos/dist/Memev-*.dmg
+      # The tested image, kept as a download for the owner's trial. Not a release.
+      - name: Keep the disk image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Memev-macos-${{ matrix.runner }}
+          path: installers/macos/dist/Memev-*.dmg*
+          retention-days: 14
