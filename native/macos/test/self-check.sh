@@ -1,6 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
-# Runs the macOS window and checks the first slice, with the same fixture and the same values as the Linux self-check.
+# Runs the macOS window and checks the rev2 shell, with the same fixture and the same values as the Linux self-check, then the
+# shell's own parts: the 14 pips, every screen's title and tabs, the one-amber rule on every tab, and the sheets.
 # It opens a real window for about a second, so it runs in CI and is not meant for a person's own screen.
 set -eu
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
@@ -13,12 +14,27 @@ for bin in "$root/memev-desktop" "$root/Memev.app/Contents/MacOS/memev-desktop";
     for want in \
       'overview=Memev 0.1.0 is running for demo. 3 notes are in the index. 1 check to look at.' \
       'health=1 check to look at.' 'star=Ship the window' 'attention=1' 'checks=2' 'primary=1' \
-      'minw=1024' 'minh=700' 'sidebar=240' 'accel=1' 'match=1' 'secret=absent' 'visible=1' "theme=$theme"; do
+      'minw=1024' 'minh=700' 'sidebar=240' 'accel=1' 'match=1' 'secret=absent' 'visible=1' "theme=$theme" \
+      'pips=14' 'pip=Backup:needs' 'pip=Running:fine' 'pip=Shared:unread' \
+      'screen=overview|Executive overview|' 'screen=operations|Operations|Workspace,Messages' 'screen=projects|Projects|' \
+      'screen=bots|Bots and agents|Team,Connect,Access' 'screen=memory|Memory|Search,Review,Browse,History,Health' \
+      'screen=checked|Checked work|' 'screen=settings|Settings|General,Plan and computers,Storage and backup,Advanced,Help and support' \
+      'screen=health|Health|' 'confirm_amber=0' 'confirm_main=red' 'sheet_amber=1'; do
       if ! printf '%s\n' "$out" | grep -Fx "$want" >/dev/null; then
         echo "missing: $want" >&2
         exit 1
       fi
     done
+    # primary= counts the filled amber buttons a person can see on the Overview; amber_max= is the most on any screen and tab.
+    # The rule (SH-20) is at most one, and every screen but Operations has one, so the most is exactly one.
+    if ! printf '%s\n' "$out" | grep -Fx 'amber_max=1' >/dev/null; then
+      echo "a screen shows other than one amber button at most: $(printf '%s\n' "$out" | sed -n 's/^amber_max=//p')" >&2
+      exit 1
+    fi
+    if [ "$(printf '%s\n' "$out" | grep -c '^pip=')" -ne 14 ]; then
+      echo "the health button does not carry 14 pips" >&2
+      exit 1
+    fi
     focus=$(printf '%s\n' "$out" | sed -n 's/^focusable=//p')
     if [ "${focus:-0}" -lt 9 ]; then
       echo "too few focusable controls: $focus" >&2
@@ -30,7 +46,7 @@ for bin in "$root/memev-desktop" "$root/Memev.app/Contents/MacOS/memev-desktop";
     fi
   done
 done
-# The guided first launch: its first step, with Continue as the one filled button.
+# The guided first launch: its first step, with Continue as the one filled button a person can see.
 guide=$(MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=1 MEMEV_SELF_CHECK=1 "$root/memev-desktop")
 printf '%s\n' "$guide"
 for want in 'guide=Is this your first computer?' 'primary_label=Continue' 'primary=1' 'visible=1'; do
