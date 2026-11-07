@@ -22,7 +22,13 @@ $bin = Join-Path $dir 'resources\bin\memev.cmd'
 $exe = Join-Path $dir 'memev-desktop.exe'
 foreach ($f in $bin, $exe, (Join-Path $dir 'resources\node\node.exe'), (Join-Path $dir 'resources\core\bin\memev.mjs')) { if (-not (Test-Path $f)) { throw "not installed: $f" } }
 
-$l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
+function Get-FreePort { $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0); $l.Start(); $n = $l.LocalEndpoint.Port; $l.Stop(); return $n }
+$port = Get-FreePort
+# the installer's own traces: a Start menu entry and an uninstall key for this user
+$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Memev.lnk'
+$key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\computer.memev.Desktop_is1'
+if (-not (Test-Path $shortcut)) { throw "no Start menu entry at $shortcut" }
+if (-not (Test-Path $key)) { throw 'no uninstall entry for this user' }
 $notes = Join-Path $t 'home\notes'
 try {
   & cmd.exe /d /c "`"$bin`" init --root `"$notes`" --local-only --no-connect --no-service --port $port"
@@ -38,16 +44,20 @@ try {
   $env:MEMEV_HEALTH_URL = "http://127.0.0.1:$port/healthz"; $env:MEMEV_THEME = 'dark'; $env:MEMEV_GUIDE = 'off'; $env:MEMEV_SELF_CHECK = '1'
   $w = Start-Process -FilePath $exe -RedirectStandardOutput $out -PassThru -NoNewWindow
   if (-not $w.WaitForExit(60000)) { $w.Kill(); throw 'the window did not exit' }
+  $wcode = $w.ExitCode
   Remove-Item Env:MEMEV_HEALTH_URL, Env:MEMEV_THEME, Env:MEMEV_GUIDE, Env:MEMEV_SELF_CHECK -ErrorAction SilentlyContinue
   $lines = @(Get-Content $out); $lines | ForEach-Object { Write-Output $_ }
-  if (-not ($lines | Where-Object { $_ -match '^overview=Memev [0-9.]+ is running' })) { throw 'the window did not read the running core' }
+  if (-not ($lines | Where-Object { $_ -cmatch '^overview=Memev [0-9.]+ is running' })) { throw 'the window did not read the running core' }
+  if ($wcode -ne 0) { throw "the window's self-check exited $wcode" }
   foreach ($want in 'match=1', 'secret=absent') { if ($lines -cnotcontains $want) { throw "missing: $want" } }
 } finally {
   & cmd.exe /d /c "`"$bin`" stop" 2>$null | Out-Null
 }
 
 # The first launch through the installed core, headless: a fresh notes folder, a note saved and read back.
-$env:MEMEV_GUIDE_PORT = [string]($port + 1)
+New-Item -ItemType Directory -Force -Path "$t\proof-home", "$t\proof-config" | Out-Null
+$env:HOME = "$t\proof-home"; $env:USERPROFILE = "$t\proof-home"; $env:MEMEV_CONFIG_DIR = "$t\proof-config"
+$env:MEMEV_GUIDE_PORT = [string](Get-FreePort)
 & dotnet run --project (Join-Path $repo 'native\windows\Memev.Reader.Check') -c Release -- proof $bin (Join-Path $t 'proof-notes')
 $rc = $LASTEXITCODE
 & cmd.exe /d /c "`"$bin`" stop" 2>$null | Out-Null
@@ -65,6 +75,8 @@ Start-Sleep -Seconds 3
 $left = @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($dir, [System.StringComparison]::OrdinalIgnoreCase) })
 if ($left.Count -gt 0) { $left | Format-Table Id, Path | Out-String | Write-Output; throw 'a process from the install is still running after uninstall' }
 if (Test-Path $exe) { throw 'the window is still installed after uninstall' }
+if (Test-Path $shortcut) { throw 'the Start menu entry is still there after uninstall' }
+if (Test-Path $key) { throw 'the uninstall entry is still there after uninstall' }
 if (-not (Test-Path $notes)) { throw 'the notes folder was not kept' }
 Write-Output 'install check passed'
 # the last native command here is a check meant to fail (no remote), and its code would otherwise become the script's
