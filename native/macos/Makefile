@@ -40,11 +40,17 @@ test-guide: $(GUIDE) $(READ) ../linux/test/test-guide.c
 proof: ../linux/src/proof.c $(GUIDE) $(READ)
 	$(CC) $(CFLAGS) -o $@ ../linux/src/proof.c $(GUIDE) $(READ)
 
-Memev.app: memev-desktop Info.plist
+# The design's fonts and their licences, each checked against its pinned SHA-256 first (fonts/SOURCES says where they come from).
+FONTS := fonts/SpaceGrotesk-wght.ttf fonts/IBMPlexMono-Regular.ttf fonts/IBMPlexMono-Medium.ttf fonts/OFL-SpaceGrotesk.txt \
+  fonts/OFL-IBMPlexMono.txt fonts/SOURCES fonts/SHA256SUMS
+
+Memev.app: memev-desktop Info.plist $(FONTS)
+	cd fonts && shasum -a 256 -c SHA256SUMS
 	rm -rf $@
-	mkdir -p $@/Contents/MacOS
+	mkdir -p $@/Contents/MacOS $@/Contents/Resources/fonts
 	cp Info.plist $@/Contents/Info.plist
 	cp memev-desktop $@/Contents/MacOS/memev-desktop
+	cp $(FONTS) $@/Contents/Resources/fonts/
 
 app: Memev.app
 

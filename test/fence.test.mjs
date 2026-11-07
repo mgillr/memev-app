@@ -21,6 +21,14 @@ test('this repository is inside the fence', () => assert.equal(run('.').status, 
 test('a clean file passes', () => assert.equal(run(tree('app/main.swift', 'print("memev plan --json")\n')).status, 0));
 test('ordinary words pass', () => assert.equal(run(tree('docs/a.md', 'Do this or set that. Colour e4e4e4 and limits on use.\n')).status, 0));
 test('the licence text may use the word', () => assert.equal(run(tree('LICENSE', 'Grant of Patent License\n')).status, 0));
+const OFL = 'OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE\n';
+test('a bundled font licence may carry its disclaimer line', () => assert.equal(run(tree('native/macos/fonts/OFL-Font.txt', OFL)).status, 0));
+test('any other line in a font licence is still scanned', () => {
+  const r = run(tree('native/macos/fonts/OFL-Font.txt', OFL + 'This covers a patent of ours.\n'));
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /OFL-Font\.txt:2: patent or filing wording/);
+});
+test('the disclaimer line anywhere else is still scanned', () => assert.equal(run(tree('docs/OFL-Font.txt', OFL)).status, 1));
 for (const [name, file, body, why] of [
   ['importing the engine', 'app/a.py', 'import crdt_merge\n', 'names the engine'],
   ['naming the package', 'app/a.swift', 'let p = "memev-merge"\n', 'names the engine'],
