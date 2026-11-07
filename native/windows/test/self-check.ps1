@@ -45,8 +45,10 @@ foreach ($theme in 'dark', 'light') {
 # Built at run time so this file does not itself contain a forbidden name.
 $needles = @(('mem' + 'ev-' + 'mer' + 'ge'), ('cr' + 'dt-' + 'mer' + 'ge'))
 foreach ($f in Get-ChildItem $bin -Include '*.exe', '*.dll' -Recurse) {
-  $text = [System.Text.Encoding]::Latin1.GetString([System.IO.File]::ReadAllBytes($f.FullName))
-  foreach ($n in $needles) { if ($text.Contains($n)) { throw "$($f.Name) names a forbidden engine token" } }
+  # .NET keeps string literals as UTF-16 and names as UTF-8, so the bytes are read both ways
+  $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
+  $texts = @([System.Text.Encoding]::Latin1.GetString($bytes), [System.Text.Encoding]::Unicode.GetString($bytes), [System.Text.Encoding]::Unicode.GetString($bytes, 1, $bytes.Length - 1))
+  foreach ($t in $texts) { foreach ($n in $needles) { if ($t.Contains($n)) { throw "$($f.Name) names a forbidden engine token" } } }
 }
 
 # A live window with health checks off must hold no TCP connection other than loopback. The window must still be running

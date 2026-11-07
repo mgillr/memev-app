@@ -57,6 +57,9 @@ static class Program
     Expect(!Json.TryGet("{\"a\":null}", "a", out _), "null");
     Expect(Json.TryGet("{\"ok\":true}", "ok", out string b) && b == "true", "bool");
     Expect(Json.TryGet("{\"s\":\"a\\nb\"}", "s", out string nl) && nl == "a b", "a line break becomes a space");
+    Expect(Json.TryGet("{\"s\":\"x\\ud800y\"}", "s", out string lone) && lone == "x?y", "a lone surrogate escape reads as '?' and does not throw");
+    Expect(Json.TryGet("{\"s\":\"caf\\u00e9\"}", "s", out string u) && u == "caf?", "a \\u escape reads as '?', as in read.c");
+    Expect(Json.TryGet("{\"a\":\"first\",\"a\":\"second\"}", "a", out string dup) && dup == "first", "a duplicate key gives the first value, as in read.c");
   }
 
   static void TestUrls()
@@ -138,6 +141,33 @@ static class Program
     g = Read.Load();
     Expect(g.CheckCount == 2 && g.ChecksWarn == 1 && g.ChecksFail == 1, "checks under a key, and a status that is not lower case counts as warn");
     Expect(g.Checks.Count == 2 && g.Checks[0].Status == "unknown" && g.Checks[0].Title == "x" && g.Checks[1].Title == "Check", "status word and title fallbacks");
+    File.WriteAllText(Path.Combine(dir, "card.json"), "{\"project\":\"" + new string('\u6f22', 30) + "\"}\n"); // 30 characters, 90 UTF-8 bytes
+    g = Read.Load();
+    Expect(g.Project.Length == 0, "a project name over 79 bytes is not shown, though it is under 79 characters");
+  }
+
+  // A core that exits while a child it started keeps stdout and stderr open: the read ends at its deadline, as read.c's does.
+  static void TestHeldOpen(string tmp)
+  {
+    string dir = Path.Combine(tmp, "held");
+    Directory.CreateDirectory(dir);
+    string bin;
+    if (OperatingSystem.IsWindows())
+    {
+      bin = Path.Combine(dir, "memev.cmd");
+      File.WriteAllText(bin, "@echo off\r\nstart \"\" /b powershell -NoProfile -Command \"Start-Sleep -Seconds 12\"\r\necho {}\r\n");
+    }
+    else
+    {
+      bin = Path.Combine(dir, "memev");
+      File.WriteAllText(bin, "#!/bin/sh\nsleep 12 &\necho '{}'\n");
+      File.SetUnixFileMode(bin, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+    var sw = Stopwatch.StartNew();
+    Core.Result r = Core.Capture(bin, new[] { "status", "--json" }, 3000);
+    long ms = sw.ElapsedMilliseconds;
+    Expect(!r.Done, "a read whose output is held open ends as out of time");
+    Expect(ms < 4500, $"a read whose output is held open ends near its 3000 ms deadline, not later ({ms} ms)");
   }
 
   static void TestHealthOnly(string tmp)
@@ -175,6 +205,7 @@ static class Program
       TestHttp();
       TestGlance(tmp);
       TestHealthOnly(tmp);
+      TestHeldOpen(tmp);
       TestMissing(tmp);
     }
     finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }

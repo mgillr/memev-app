@@ -57,23 +57,57 @@ public static class Json
     JsonElement cur = root;
     foreach (string part in key.Split('.'))
     {
-      if (part.Length == 0 || cur.ValueKind != JsonValueKind.Object || !cur.TryGetProperty(part, out JsonElement next)) return false;
+      if (part.Length == 0 || cur.ValueKind != JsonValueKind.Object || !TryGetFirst(cur, part, out JsonElement next)) return false;
       cur = next;
     }
     switch (cur.ValueKind)
     {
       case JsonValueKind.String:
-        // read.c turns a line break inside a string into a space and a \u escape into '?'. The core writes \u only for control
-        // characters, so those become '?'; a tab stays, and any other character passes through as read.c passes its bytes.
-        var sb = new StringBuilder();
-        foreach (char c in cur.GetString() ?? "") sb.Append(c == '\n' || c == '\r' ? ' ' : c < 0x20 && c != '\t' ? '?' : c);
-        value = sb.ToString();
+        value = Decode(cur.GetRawText());
         return true;
       case JsonValueKind.Number: value = cur.GetRawText(); return true;
       case JsonValueKind.True: value = "true"; return true;
       case JsonValueKind.False: value = "false"; return true;
       default: return false;
     }
+  }
+
+  // The first property of that name, as read.c finds it; JsonElement.TryGetProperty would give the last one.
+  public static bool TryGetFirst(JsonElement obj, string name, out JsonElement value)
+  {
+    foreach (JsonProperty p in obj.EnumerateObject())
+      if (p.NameEquals(name)) { value = p.Value; return true; }
+    value = default;
+    return false;
+  }
+
+  // A JSON string token decoded as read.c's decode_scalar does, from its raw text, so no escape can throw: \n, \t, \r, \", \\ and
+  // \/ as themselves, a \u escape as '?', any other escaped character as itself, and a line break as a space.
+  static string Decode(string raw)
+  {
+    var sb = new StringBuilder();
+    int end = raw.Length - 1; // raw holds its quotes
+    for (int i = 1; i < end;)
+    {
+      char c;
+      if (raw[i] == '\\')
+      {
+        i++;
+        if (i >= end) break;
+        char e = raw[i++];
+        switch (e)
+        {
+          case 'n': c = '\n'; break;
+          case 't': c = '\t'; break;
+          case 'r': c = '\r'; break;
+          case 'u': c = '?'; for (int k = 0; k < 4 && i < end; k++) i++; break;
+          default: c = e; break;
+        }
+      }
+      else c = raw[i++];
+      sb.Append(c == '\n' || c == '\r' ? ' ' : c);
+    }
+    return sb.ToString();
   }
 }
 
@@ -213,18 +247,17 @@ public static class Core
     catch (Exception e) when (e is System.ComponentModel.Win32Exception || e is InvalidOperationException || e is IOException) { return new Result(true, 127, ""); }
     using (p)
     {
+      // stderr is drained and dropped, as read.c sends it to /dev/null. Every wait below has the deadline: WaitForExit(int) does not
+      // wait for the streams, so a grandchild that keeps stdout or stderr open cannot hold this past timeoutMs, as it cannot in read.c.
       p.ErrorDataReceived += (_, _) => { };
       p.BeginErrorReadLine();
       var outTask = ReadCapped(p.StandardOutput.BaseStream, 262143);
-      if (!p.WaitForExit(timeoutMs))
-      {
-        try { p.Kill(true); } catch (InvalidOperationException) { }
-        p.WaitForExit();
-        return new Result(false, 128, "");
-      }
-      p.WaitForExit();
-      string output = outTask.Wait(1000) ? outTask.Result : "";
-      return new Result(true, p.ExitCode, output);
+      var clock = Stopwatch.StartNew();
+      if (p.WaitForExit(timeoutMs) && outTask.Wait(Math.Max(0, timeoutMs - (int)clock.ElapsedMilliseconds)))
+        return new Result(true, p.ExitCode, outTask.Result);
+      try { p.Kill(true); } catch (InvalidOperationException) { }
+      p.WaitForExit(1000);
+      return new Result(false, 128, "");
     }
   }
 
@@ -251,9 +284,10 @@ public static class Read
     return true;
   }
 
+  // cap counts UTF-8 bytes, as read.c's strlen does
   static bool PlainLabel(string s, int cap)
   {
-    if (s.Length == 0 || s.Length > cap) return false;
+    if (s.Length == 0 || Encoding.UTF8.GetByteCount(s) > cap) return false;
     foreach (char c in s) if (c < 32 || c == '/' || c == '\\') return false;
     return true;
   }
@@ -280,7 +314,7 @@ public static class Read
     using (doc)
     {
       JsonElement list = doc.RootElement;
-      if (list.ValueKind == JsonValueKind.Object && list.TryGetProperty("checks", out JsonElement inner)) list = inner;
+      if (list.ValueKind == JsonValueKind.Object && Json.TryGetFirst(list, "checks", out JsonElement inner)) list = inner;
       if (list.ValueKind != JsonValueKind.Array) return;
       foreach (JsonElement item in list.EnumerateArray())
       {
