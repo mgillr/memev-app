@@ -3,6 +3,7 @@
 #include "read.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 void guide_plan_clear(GuidePlan *plan) {
@@ -253,8 +254,17 @@ int guide_apply(const GuidePlan *plan, const char *bin, char *detail, size_t det
     argv[cmds[i].argc] = NULL;
     int code = 0;
     out[0] = 0; /* memev_capture leaves out unwritten when it cannot start the command */
-    int timeout = strcmp(cmds[i].arg[1], "init") == 0 ? 20000 : 10000;
-    if (memev_capture(bin, argv, out, sizeof out, timeout, &code) != 0 || code != 0) {
+    /* a first init starts Node and git, maybe while a virus scanner checks them, and makes the vault: it can take minutes.
+       MEMEV_GUIDE_TIMEOUT_MS is for tests. */
+    int timeout = strcmp(cmds[i].arg[1], "init") == 0 || strcmp(cmds[i].arg[1], "join") == 0 ? 300000 : 60000;
+    const char *t = getenv("MEMEV_GUIDE_TIMEOUT_MS");
+    if (t && atoi(t) > 0) timeout = atoi(t);
+    int rc = memev_capture_all(bin, argv, out, sizeof out, timeout, &code);
+    if (rc == -2) {
+      if (detail) snprintf(detail, detailn, "The command %s took longer than %d seconds, so it was stopped. Try again; if it happens twice, open Health.", cmds[i].arg[1], timeout / 1000);
+      return -1;
+    }
+    if (rc != 0 || code != 0) {
       char bit[200];
       scrub(out, bit, sizeof bit);
       if (detail) snprintf(detail, detailn, "The command %s stopped. %s", cmds[i].arg[1], bit);

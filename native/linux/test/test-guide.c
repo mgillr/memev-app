@@ -146,12 +146,41 @@ static void test_apply(void) {
   rmdir(dir);
 }
 
+/* a failed setup command says why: the core's stderr reaches the detail, scrubbed; a slow one says it was stopped */
+static void test_apply_reason(void) {
+  char dir[] = "/tmp/memev-guide-XXXXXX";
+  expect(mkdtemp(dir) != NULL, "mkdtemp");
+  char bin[256];
+  snprintf(bin, sizeof bin, "%s/memev", dir);
+  for (int round = 0; round < 2; round++) {
+    FILE *f = fopen(bin, "w");
+    expect(f != NULL, "fake core");
+    if (round == 0) fprintf(f, "#!/bin/sh\ncase \"$1\" in\n  init) echo 'cannot write the notes folder' >&2; exit 1 ;;\n  *) exit 0 ;;\nesac\n");
+    else fprintf(f, "#!/bin/sh\ncase \"$1\" in\n  init) sleep 3 ;;\n  *) exit 0 ;;\nesac\n");
+    fclose(f);
+    chmod(bin, 0755);
+    GuidePlan plan;
+    guide_plan_clear(&plan);
+    plan.first_computer = 1;
+    snprintf(plan.notes_dir, sizeof plan.notes_dir, "%s/notes", dir);
+    char detail[400] = "";
+    if (round == 1) setenv("MEMEV_GUIDE_TIMEOUT_MS", "500", 1);
+    int rc = guide_apply(&plan, bin, detail, sizeof detail);
+    unsetenv("MEMEV_GUIDE_TIMEOUT_MS");
+    if (round == 0) expect(rc != 0 && strstr(detail, "cannot write the notes folder") != NULL, "the core's reason reaches the detail");
+    else expect(rc != 0 && strstr(detail, "took longer than") != NULL, "a command past its limit says it was stopped");
+  }
+  unlink(bin);
+  rmdir(dir);
+}
+
 int main(void) {
   test_parse();
   test_silent();
   test_paths();
   test_urls();
   test_apply();
+  test_apply_reason();
   printf("guide tests passed\n");
   return 0;
 }
