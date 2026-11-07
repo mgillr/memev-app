@@ -1,0 +1,47 @@
+{
+  "memev_repository": "https://github.com/mgillr/memev.git",
+  "memev_commit": "7544bb3e64e8fc166dc9fbc52c38f6caecd604e3",
+  "version": "0.1.0",
+  "platform": "linux-x64",
+  "glibc_min": "2.38",
+  "node": {
+    "version": "22.23.4",
+    "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.gz",
+    "sha256": "b8492284c76a54baf58d61668dd0e41ee0fc98adabf9503d30f05d08f55b4406"
+  },
+  "git": {
+    "version": "2.43.0",
+    "license": "GPL-2.0-only",
+    "source_url": "https://archive.ubuntu.com/ubuntu/pool/main/g/git/git_2.43.0-1ubuntu7.4.dsc",
+    "source_sha256": "b00b55dcce31a063b783cd0e34fce02c24167fc9f32e2eb7bb2ff4a31652f7a5",
+    "packages": [
+      {
+        "name": "git",
+        "version": "1:2.43.0-1ubuntu7.4",
+        "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/git/git_2.43.0-1ubuntu7.4_amd64.deb",
+        "sha256": "c79b7948ef9860c97ec74293a90178676e63368a0711c95c28a55af4edf1adab"
+      },
+      {
+        "name": "libpcre2-8-0",
+        "version": "10.42-4ubuntu2.2",
+        "url": "https://archive.ubuntu.com/ubuntu/pool/main/p/pcre2/libpcre2-8-0_10.42-4ubuntu2.2_amd64.deb",
+        "sha256": "f41da7cb7e979d6b037ea92650c72ec8ec532ec3c93aa8d5b997207de56695ea"
+      },
+      {
+        "name": "zlib1g",
+        "version": "1:1.3.dfsg-3.1ubuntu2.3",
+        "url": "https://archive.ubuntu.com/ubuntu/pool/main/z/zlib/zlib1g_1.3.dfsg-3.1ubuntu2.3_amd64.deb",
+        "sha256": "376249c8de139568221dbb242318cc8cb8f02299e3a62b7432948e1754fbddf9"
+      }
+    ]
+  },
+  "not_built": [
+    "linux-arm64",
+    "darwin-arm64",
+    "darwin-x64",
+    "win-x64",
+    "win-arm64",
+    "macos-dmg",
+    "windows-exe"
+  ]
+}
