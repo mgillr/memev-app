@@ -20,7 +20,8 @@ function Invoke-Window([hashtable]$vars, [string[]]$arguments) {
     if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "the window did not exit within 60 s" }
     return @{ Code = $p.ExitCode; Lines = @(Get-Content $out) }
   } finally {
-    foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
+    # PowerShell passes $null to a .NET string as an empty string, which does not remove the variable, so removal is explicit
+    foreach ($k in $saved.Keys) { if ($null -eq $saved[$k]) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue } else { Set-Item "Env:$k" $saved[$k] } }
     Remove-Item $out -ErrorAction SilentlyContinue
   }
 }
@@ -50,6 +51,7 @@ foreach ($f in Get-ChildItem $bin -Include '*.exe', '*.dll' -Recurse) {
 
 # A live window with health checks off must hold no TCP connection other than loopback. The window must still be running
 # when the connections are read, or the check would pass on a window that had already gone.
+Remove-Item Env:MEMEV_SELF_CHECK -ErrorAction SilentlyContinue
 $env:MEMEV_BIN = $fix; $env:MEMEV_HEALTH_URL = 'off'; $env:MEMEV_THEME = 'dark'; $env:MEMEV_POLL_MS = '500'
 $p = Start-Process -FilePath $exe -PassThru
 try {
