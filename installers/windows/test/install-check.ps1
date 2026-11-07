@@ -27,6 +27,8 @@ $bin = Join-Path $dir 'resources\bin\memev.cmd'
 $exe = Join-Path $dir 'memev-desktop.exe'
 $git = Join-Path $dir 'resources\git\cmd\git.exe'
 foreach ($f in $bin, $exe, $git, (Join-Path $dir 'resources\node\node.exe'), (Join-Path $dir 'resources\core\bin\memev.mjs')) { if (-not (Test-Path $f)) { throw "not installed: $f" } }
+# the fonts' licences ship beside the program, as the SIL Open Font License asks
+foreach ($f in 'OFL-SpaceGrotesk.txt', 'OFL-IBMPlexMono.txt', 'SOURCES', 'SHA256SUMS') { if (-not (Test-Path (Join-Path $dir "fonts\$f"))) { throw "not installed: fonts\$f" } }
 
 function Get-FreePort { $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0); $l.Start(); $n = $l.LocalEndpoint.Port; $l.Stop(); return $n }
 $port = Get-FreePort
