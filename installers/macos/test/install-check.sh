@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
-# Installs the disk image into a temporary Applications folder and home, then: the bundled core inits a notes folder and
+# Installs the disk image into a temporary Applications folder and home, with failing node, npm, npx, memev and git first on PATH, then: the bundled core inits a notes folder and
 # starts, status and doctor answer, the window reads that live core, the core stops, and uninstall leaves no process behind.
 # The window step opens a real window for about a second; set MEMEV_SKIP_WINDOW=1 to leave it out on a person's own screen.
 set -eu
@@ -18,10 +18,12 @@ export HOME=$t/home
 unset MEMEV_BIN NODE_OPTIONS NODE_PATH || true
 # No node, npm or memev from this machine: stand-ins that fail come first on PATH.
 mkdir -p "$t/deny"
-for c in node npm npx memev; do printf '#!/bin/sh\necho "%s from PATH was used" >&2\nexit 97\n' "$c" > "$t/deny/$c"; chmod +x "$t/deny/$c"; done
+for c in node npm npx memev git; do printf '#!/bin/sh\necho "%s from PATH was used" >&2\nexit 97\n' "$c" > "$t/deny/$c"; chmod +x "$t/deny/$c"; done
 export PATH=$t/deny:/usr/bin:/bin:/usr/sbin:/sbin
 port=$("$app/Contents/Resources/node/bin/node" -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")
 "$bin" init --root "$HOME/notes" --local-only --no-connect --no-service --port "$port" > "$t/init.txt" 2>&1 || { cat "$t/init.txt" >&2; exit 1; }
+"$app/Contents/Resources/git/bin/git" --version | grep -E '^git version [0-9]' >/dev/null || { echo "the bundled git does not run" >&2; exit 1; }
+[ -d "$HOME/notes/.git" ] || { echo "init made no git repository with the bundled git" >&2; exit 1; }
 "$bin" status --json > "$t/status.json"
 "$app/Contents/Resources/node/bin/node" -e "const s=require(process.argv[1]); if(!s.version) process.exit(1); console.log('core', s.version)" "$t/status.json"
 "$bin" doctor --json > "$t/doctor.json" || true
@@ -32,6 +34,20 @@ if [ "${MEMEV_SKIP_WINDOW:-}" != 1 ]; then
   printf '%s\n' "$out" | grep -E '^overview=Memev [0-9.]+ is running' >/dev/null || { echo "the window did not read the running core" >&2; exit 1; }
   printf '%s\n' "$out" | grep -Fx 'match=1' >/dev/null
   printf '%s\n' "$out" | grep -Fx 'secret=absent' >/dev/null
+  # Each page over the live core: it answers, shows its sections and leaks no path. Memory finds a note saved just now.
+  "$bin" remember "the window reads this note" --force >/dev/null 2>&1
+  for page in memory checked bots projects settings; do
+    pout=$(MEMEV_GUIDE=off MEMEV_HEALTH_URL="http://127.0.0.1:$port/healthz" MEMEV_THEME=dark MEMEV_SELF_CHECK=1 MEMEV_SELF_CHECK_PAGE=$page \
+      MEMEV_SELF_CHECK_QUERY="window reads" "$app/Contents/MacOS/memev-desktop") || { printf '%s\n' "$pout" >&2; echo "page $page failed" >&2; exit 1; }
+    printf '%s\n' "$pout"
+    printf '%s\n' "$pout" | grep -Fx "page=$page" >/dev/null && printf '%s\n' "$pout" | grep -Fx 'leak=absent' >/dev/null || { echo "page $page: bad report" >&2; exit 1; }
+    if printf '%s\n' "$pout" | grep -E '^(row|empty)=' | grep -Ei 'did not answer|could not be read' >/dev/null; then echo "page $page: a command did not answer" >&2; exit 1; fi
+  done
+  # The page check must be able to fail: against a memev that always fails, every section says it did not answer.
+  printf '#!/bin/sh\nexit 1\n' > "$t/broken-memev"; chmod +x "$t/broken-memev"
+  bad=$(MEMEV_BIN="$t/broken-memev" MEMEV_GUIDE=off MEMEV_HEALTH_URL=off MEMEV_SELF_CHECK=1 MEMEV_SELF_CHECK_PAGE=checked "$app/Contents/MacOS/memev-desktop" || true)
+  printf '%s\n' "$bad" | grep -E '^empty=.*did not answer' >/dev/null || { printf '%s\n' "$bad" >&2; echo "a failing core was not reported on the page" >&2; exit 1; }
+  printf '%s\n' "$(MEMEV_GUIDE=off MEMEV_HEALTH_URL=off MEMEV_SELF_CHECK=1 MEMEV_SELF_CHECK_PAGE=memory MEMEV_SELF_CHECK_QUERY="window reads" "$app/Contents/MacOS/memev-desktop")" | grep -F 'row=the window reads this note' >/dev/null || { echo "memory search did not find the saved note" >&2; exit 1; }
 fi
 "$bin" stop > /dev/null 2>&1 || true
 # The guided first launch, headless, against the app's own core: a fresh notes folder, a note saved and read back, and the
