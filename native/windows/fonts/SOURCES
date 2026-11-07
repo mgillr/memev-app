@@ -1,0 +1,10 @@
+The static Space Grotesk faces the Windows window uses, unchanged from the Space Grotesk project at commit
+03507d024a01282884232081fc6011c09ff4e849 (the same files as its release 2.0.0). WPF cannot set the weight of the variable
+font in native/macos/fonts, so Windows ships these. Each file's SHA-256 is in SHA256SUMS; the build checks them first.
+The project has no static SemiBold; the wordmark's weight 600 is drawn with Bold on Windows.
+Space Grotesk is under the SIL Open Font License 1.1; its licence is native/macos/fonts/OFL-SpaceGrotesk.txt, shipped beside
+these files. IBM Plex Mono comes from native/macos/fonts as it is.
+
+SpaceGrotesk-Regular.ttf  https://github.com/floriankarsten/space-grotesk/blob/03507d024a01282884232081fc6011c09ff4e849/fonts/ttf/static/SpaceGrotesk-Regular.ttf
+SpaceGrotesk-Medium.ttf   https://github.com/floriankarsten/space-grotesk/blob/03507d024a01282884232081fc6011c09ff4e849/fonts/ttf/static/SpaceGrotesk-Medium.ttf
+SpaceGrotesk-Bold.ttf     https://github.com/floriankarsten/space-grotesk/blob/03507d024a01282884232081fc6011c09ff4e849/fonts/ttf/static/SpaceGrotesk-Bold.ttf

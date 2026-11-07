@@ -238,6 +238,7 @@ static class Program
       TestHeldOpen(tmp);
       TestMissing(tmp);
       GuideTests.Run(Expect, tmp);
+      QrTests.Run(Expect);
     }
     finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
     if (failed > 0) { Console.Error.WriteLine($"{failed} reader test(s) failed"); return 1; }

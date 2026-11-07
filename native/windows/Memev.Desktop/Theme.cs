@@ -3,7 +3,8 @@
 // same as native/macos/src/Theme.swift. Each token is a brush in the application's resources under its own name, and every part
 // of the window takes its colours from there by reference, so a change of theme repaints the whole window at once.
 // Fonts: Space Grotesk for everything and IBM Plex Mono for labels, commands and machine text. Both are under the SIL Open Font
-// License and are built into the program from native/macos/fonts, each checked against its pinned SHA-256 at build time
+// License and are built into the program (static Space Grotesk from native/windows/fonts, IBM Plex Mono from native/macos/fonts),
+// each checked against its pinned SHA-256 at build time
 // (Memev.Desktop.csproj). When they cannot be loaded the window uses Segoe UI and Consolas at the same sizes and weights.
 using System;
 using System.Collections.Generic;
@@ -115,8 +116,8 @@ sealed record TypeStyle(double Size, double Line, int Weight, double Tracking, b
   public static readonly TypeStyle Code = new(12, 16, 400, 0, true);
   public static readonly TypeStyle CodeBlock = new(12, 20, 400, 0, true);
 
-  public FontFamily Family => Mono ? Fonts.Mono : Fonts.Sans;
-  public FontWeight FontWeight => FontWeight.FromOpenTypeWeight(Weight);
+  public FontFamily Family => Mono ? Fonts.Mono : Fonts.SansAt(Weight);
+  public FontWeight FontWeight => Mono ? FontWeight.FromOpenTypeWeight(Weight) : Fonts.SansWeight(Weight);
 }
 
 /// The design's two families, built into the program as resources. Each falls back to the system font on its own.
@@ -125,6 +126,8 @@ static class Fonts
   public const string SansName = "Space Grotesk";
   public const string MonoName = "IBM Plex Mono";
   public static FontFamily Sans { get; private set; } = new("Segoe UI");
+  /// Space Grotesk Medium names itself a family of its own (nameID 1 "Space Grotesk Medium"), so it is found on its own.
+  static FontFamily? sansMedium;
   public static FontFamily Mono { get; private set; } = new("Consolas");
   public static bool SansBundled { get; private set; }
   public static bool MonoBundled { get; private set; }
@@ -133,6 +136,7 @@ static class Fonts
   public static void Load()
   {
     SansBundled = MonoBundled = false;
+    sansMedium = null;
     Sans = new FontFamily("Segoe UI");
     Mono = new FontFamily("Consolas");
     if (Environment.GetEnvironmentVariable("MEMEV_FONTS") == "off") return;
@@ -142,10 +146,22 @@ static class Fonts
       FontFamily? Named(string n) => found.FirstOrDefault((f) => f.FamilyNames.Values.Contains(n) || f.Source.EndsWith("#" + n, StringComparison.Ordinal));
       // A family counts only when a face of it can be built, not when WPF would quietly stand another font in.
       if (Named(SansName) is FontFamily s && Face(s, 400) is GlyphTypeface gs && gs.FamilyNames.Values.Contains(SansName)) { Sans = s; SansBundled = true; }
+      if (SansBundled)
+      {
+        if (Face(Sans, 500) is GlyphTypeface g5 && g5.Weight.ToOpenTypeWeight() == 500) sansMedium = Sans;
+        else if (Named(SansName + " Medium") is FontFamily sm && Face(sm, 500) is GlyphTypeface gm5 && gm5.Weight.ToOpenTypeWeight() == 500) sansMedium = sm;
+      }
       if (Named(MonoName) is FontFamily m && Face(m, 400) is GlyphTypeface gm && gm.FamilyNames.Values.Contains(MonoName)) { Mono = m; MonoBundled = true; }
     }
     catch (Exception e) when (e is UriFormatException || e is System.IO.IOException || e is ArgumentException || e is NotSupportedException || e is InvalidOperationException) { }
   }
+
+  /// The family a sans weight is drawn from: Medium from its own family when the font names it so.
+  public static FontFamily SansAt(int weight) => weight == 500 && sansMedium != null ? sansMedium : Sans;
+
+  /// The weight asked of WPF. The static faces are 400, 500 and 700: 600 (the wordmark) is drawn with Bold.
+  public static FontWeight SansWeight(int weight) => !SansBundled ? FontWeight.FromOpenTypeWeight(weight)
+    : weight >= 600 ? FontWeights.Bold : weight == 500 ? (sansMedium == Sans ? FontWeights.Medium : FontWeights.Normal) : FontWeights.Normal;
 
   public static GlyphTypeface? Face(FontFamily f, int weight)
   {
@@ -157,12 +173,18 @@ static class Fonts
     names.FirstOrDefault((kv) => kv.Key.Name.StartsWith("en", StringComparison.OrdinalIgnoreCase)).Value ?? names.Values.FirstOrDefault() ?? "";
 
   /// The family a style resolves to, as the font file names itself.
-  public static string FamilyOf(TypeStyle s) => Face(s.Family, s.Weight) is GlyphTypeface g ? En(g.FamilyNames) : s.Family.Source;
+  public static string FamilyOf(TypeStyle s) => Resolve(s) is GlyphTypeface g ? En(g.FamilyNames) : s.Family.Source;
 
-  /// The weight WPF gives a face asked for at this weight (a variable font may answer with one weight for all).
-  public static int WeightOf(TypeStyle s) => Face(s.Family, s.Weight) is GlyphTypeface g ? g.Weight.ToOpenTypeWeight() : 0;
+  /// The weight of the face WPF draws a style with.
+  public static int WeightOf(TypeStyle s) => Resolve(s) is GlyphTypeface g ? g.Weight.ToOpenTypeWeight() : 0;
 
-  public static string FaceOf(TypeStyle s) => Face(s.Family, s.Weight) is GlyphTypeface g ? En(g.FaceNames) : "";
+  public static string FaceOf(TypeStyle s) => Resolve(s) is GlyphTypeface g ? En(g.FaceNames) : "";
+
+  static GlyphTypeface? Resolve(TypeStyle s)
+  {
+    var t = new Typeface(s.Family, FontStyles.Normal, s.FontWeight, FontStretches.Normal);
+    return t.TryGetGlyphTypeface(out GlyphTypeface g) ? g : null;
+  }
 
   /// The lines --fonts prints and the self-check reads.
   public static IEnumerable<string> Report()

@@ -227,20 +227,21 @@ public static class Core
 
   public sealed record Result(bool Done, int ExitCode, string Output);
 
-  // Run bin with args, stdout captured (at most 256 KiB), stderr dropped. Done is false when it ran out of time, and it is then killed.
-  public static Result Capture(string bin, string[] args, int timeoutMs)
+  // The start of a run of bin with args, or null when an argument is refused. A batch file runs through cmd.exe, which reads its
+  // line again, and the batch file may read its arguments again with %~1, which drops the quotes. So an argument holding any
+  // character cmd.exe treats specially (" % ! & | < > ^ ( )) or a control character is refused, and the rest are quoted so spaces
+  // stay inside one argument. The first launch passes typed text here (a notes folder, a remote, a join code), so this is the
+  // line a command could otherwise be smuggled through. The program's own path is quoted and never typed by a person, so an
+  // install under 'Program Files (x86)' still runs. env adds variables for this run only, such as a token that must not be an
+  // argument anyone can read in the process list.
+  static ProcessStartInfo? Prepare(string bin, string[] args, IDictionary<string, string>? env)
   {
     var psi = new ProcessStartInfo { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
     string ext = Path.GetExtension(bin).ToLowerInvariant();
     if (Windows && (ext == ".cmd" || ext == ".bat"))
     {
-      // A batch file runs through cmd.exe, which reads its line again, and the batch file may read its arguments again with %~1,
-      // which drops the quotes. So an argument holding any character cmd.exe treats specially (" % ! & | < > ^ ( )) or a control
-      // character is refused, and the rest are quoted so spaces stay inside one argument. The first launch passes typed text
-      // here (a notes folder, a remote, a join code), so this is the line a command could otherwise be smuggled through.
-      // the program's own path is quoted and never typed by a person, so an install under 'Program Files (x86)' still runs
       foreach (string a in args)
-        if (a.Any((c) => "\"%!&|<>^()".Contains(c) || c < ' ')) return new Result(true, 126, "");
+        if (a.Any((c) => "\"%!&|<>^()".Contains(c) || c < ' ')) return null;
       psi.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
       psi.Arguments = $"/d /s /c \"{string.Join(' ', args.Prepend(bin).Select(Quote))}\"";
     }
@@ -249,6 +250,15 @@ public static class Core
       psi.FileName = bin;
       foreach (string a in args) psi.ArgumentList.Add(a);
     }
+    if (env != null) foreach (var kv in env) psi.Environment[kv.Key] = kv.Value;
+    return psi;
+  }
+
+  // Run bin with args, stdout captured (at most 256 KiB), stderr dropped. Done is false when it ran out of time, and it is then killed.
+  public static Result Capture(string bin, string[] args, int timeoutMs, IDictionary<string, string>? env = null)
+  {
+    var psi = Prepare(bin, args, env);
+    if (psi == null) return new Result(true, 126, "");
     Process p;
     try { p = Process.Start(psi) ?? throw new InvalidOperationException("no process"); }
     catch (Exception e) when (e is System.ComponentModel.Win32Exception || e is InvalidOperationException || e is IOException) { return new Result(true, 127, ""); }
@@ -265,6 +275,37 @@ public static class Core
       try { p.Kill(true); } catch (InvalidOperationException) { }
       p.WaitForExit(1000);
       return new Result(false, 128, "");
+    }
+  }
+
+  // Run bin with args and hand each line of stdout to onLine as it comes, for a command that prints while it waits (a WhatsApp
+  // link code). It stops at the deadline or when cancel is set, and the process is killed then. The exit code, or -1 when it
+  // was stopped, 126 when an argument was refused, 127 when it could not start.
+  public static int Stream(string bin, string[] args, int timeoutMs, Action<string> onLine, CancellationToken cancel, IDictionary<string, string>? env = null)
+  {
+    var psi = Prepare(bin, args, env);
+    if (psi == null) return 126;
+    Process p;
+    try { p = Process.Start(psi) ?? throw new InvalidOperationException("no process"); }
+    catch (Exception e) when (e is System.ComponentModel.Win32Exception || e is InvalidOperationException || e is IOException) { return 127; }
+    using (p)
+    {
+      p.ErrorDataReceived += (_, _) => { };
+      p.OutputDataReceived += (_, e) => { if (e.Data != null) onLine(e.Data); };
+      p.BeginErrorReadLine();
+      p.BeginOutputReadLine();
+      var clock = Stopwatch.StartNew();
+      while (!p.WaitForExit(200))
+      {
+        if (cancel.IsCancellationRequested || clock.ElapsedMilliseconds > timeoutMs)
+        {
+          try { p.Kill(true); } catch (InvalidOperationException) { }
+          p.WaitForExit(1000);
+          return -1;
+        }
+      }
+      p.WaitForExit();
+      return p.ExitCode;
     }
   }
 

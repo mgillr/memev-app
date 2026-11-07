@@ -13,28 +13,40 @@
     <RootNamespace>Memev.Desktop</RootNamespace>
     <StartupObject>Memev.Desktop.Program</StartupObject>
     <Version>0.0.1</Version>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- WPF names a font's family and faces by culture, so the window keeps the culture data the reader does without. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
     <Fonts>../../macos/fonts</Fonts>
+    <WinFonts>../fonts</WinFonts>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Memev.Reader/Memev.Reader.csproj" />
   </ItemGroup>
-  <!-- The design's fonts, the same files the macOS app ships (native/macos/fonts), built into the program. Their licences and
-       sources are copied beside the program, as the SIL Open Font License asks. -->
+  <!-- The design's fonts, built into the program: the static Space Grotesk faces in native/windows/fonts (WPF cannot set the
+       weight of the variable font macOS uses) and IBM Plex Mono from native/macos/fonts. The licences, sources and sums are
+       copied beside the program, as the SIL Open Font License asks. -->
   <ItemGroup>
-    <Resource Include="$(Fonts)/SpaceGrotesk-wght.ttf" Link="fonts/SpaceGrotesk-wght.ttf" />
+    <Resource Include="$(WinFonts)/SpaceGrotesk-Regular.ttf" Link="fonts/SpaceGrotesk-Regular.ttf" />
+    <Resource Include="$(WinFonts)/SpaceGrotesk-Medium.ttf" Link="fonts/SpaceGrotesk-Medium.ttf" />
+    <Resource Include="$(WinFonts)/SpaceGrotesk-Bold.ttf" Link="fonts/SpaceGrotesk-Bold.ttf" />
     <Resource Include="$(Fonts)/IBMPlexMono-Regular.ttf" Link="fonts/IBMPlexMono-Regular.ttf" />
     <Resource Include="$(Fonts)/IBMPlexMono-Medium.ttf" Link="fonts/IBMPlexMono-Medium.ttf" />
-    <Content Include="$(Fonts)/OFL-SpaceGrotesk.txt;$(Fonts)/OFL-IBMPlexMono.txt;$(Fonts)/SOURCES;$(Fonts)/SHA256SUMS">
+    <Content Include="$(Fonts)/OFL-SpaceGrotesk.txt;$(Fonts)/OFL-IBMPlexMono.txt">
       <Link>fonts/%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
-    <FontCheck Include="$(Fonts)/SpaceGrotesk-wght.ttf;$(Fonts)/IBMPlexMono-Regular.ttf;$(Fonts)/IBMPlexMono-Medium.ttf;$(Fonts)/OFL-SpaceGrotesk.txt;$(Fonts)/OFL-IBMPlexMono.txt" />
+    <Content Include="$(WinFonts)/SOURCES" Link="fonts/SOURCES" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(WinFonts)/SHA256SUMS" Link="fonts/SHA256SUMS" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(Fonts)/SOURCES" Link="fonts/SOURCES-IBMPlexMono" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <FontCheck Include="$(WinFonts)/SpaceGrotesk-Regular.ttf;$(WinFonts)/SpaceGrotesk-Medium.ttf;$(WinFonts)/SpaceGrotesk-Bold.ttf" />
+    <FontCheck Include="$(Fonts)/IBMPlexMono-Regular.ttf;$(Fonts)/IBMPlexMono-Medium.ttf;$(Fonts)/OFL-SpaceGrotesk.txt;$(Fonts)/OFL-IBMPlexMono.txt" />
   </ItemGroup>
-  <!-- Each font and licence is checked against its pinned SHA-256 in SHA256SUMS before anything is built. -->
+  <!-- Each font and licence is checked against its pinned SHA-256 in its folder's SHA256SUMS before anything is built. -->
   <Target Name="VerifyFonts" BeforeTargets="BeforeBuild;CoreCompile">
     <ReadLinesFromFile File="$(Fonts)/SHA256SUMS">
+      <Output TaskParameter="Lines" ItemName="FontSum" />
+    </ReadLinesFromFile>
+    <ReadLinesFromFile File="$(WinFonts)/SHA256SUMS">
       <Output TaskParameter="Lines" ItemName="FontSum" />
     </ReadLinesFromFile>
     <GetFileHash Files="@(FontCheck)" Algorithm="SHA256" HashEncoding="hex">
