@@ -133,6 +133,7 @@ public static class Guide
     foreach (string[] args in cmds)
     {
       var r = Core.Capture(bin, args, args[0] == "init" ? 20000 : 10000);
+      if (r.Done && r.ExitCode == 126) { detail = "That folder, address or code holds a character this window will not pass to the core: \" % ! & | < > ^ ( ). Choose one without it."; return false; }
       if (!r.Done || r.ExitCode != 0) { detail = $"The command {args[0]} stopped. {Scrub(r.Output)}".TrimEnd(); return false; }
       if (args[0] == "recall" && !r.Output.Contains(plan.Phrase, StringComparison.Ordinal)) { detail = "Recall did not return the note just saved."; return false; }
     }

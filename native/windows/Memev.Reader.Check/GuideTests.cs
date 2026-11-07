@@ -103,10 +103,10 @@ static class GuideTests
       string dir = Path.Combine(tmp, "cmdq");
       Directory.CreateDirectory(dir);
       string bin = Path.Combine(dir, "memev.cmd");
-      File.WriteAllText(bin, "@echo off\r\necho [%~1]\r\n");
-      var r = Core.Capture(bin, new[] { "a & echo INJECTED (x)" }, 5000);
-      expect(r.Done && r.ExitCode == 0 && r.Output.Contains("[a & echo INJECTED (x)]") && !r.Output.Contains("\r\nINJECTED"), $"& reaches the core as text ({r.Output.Trim()})");
-      foreach (string bad in new[] { "%PATH%", "say \"hi\"", "a!b!" })
+      File.WriteAllText(bin, "@echo off\r\necho [%~1] [%~2]\r\n");
+      var r = Core.Capture(bin, new[] { @"C:\My Notes\x y", "two" }, 5000);
+      expect(r.Done && r.ExitCode == 0 && r.Output.Contains(@"[C:\My Notes\x y] [two]"), $"an argument with spaces stays one argument ({r.Output.Trim()})");
+      foreach (string bad in new[] { "%PATH%", "say \"hi\"", "a!b!", "a & echo INJECTED", "a | x", "a > f", "a < f", "a^b", "C:\\Program Files (x86)" })
         expect(Core.Capture(bin, new[] { bad }, 5000).ExitCode == 126, $"refused before cmd.exe: {bad}");
     }
   }

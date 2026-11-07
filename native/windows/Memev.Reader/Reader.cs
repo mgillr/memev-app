@@ -234,12 +234,12 @@ public static class Core
     string ext = Path.GetExtension(bin).ToLowerInvariant();
     if (Windows && (ext == ".cmd" || ext == ".bat"))
     {
-      // A batch file runs through cmd.exe, which reads its line again. Every argument is quoted, so & | < > ( ) and spaces stay
-      // text; one that holds a quote, % or ! (which cmd.exe expands even inside quotes) or a control character is refused.
-      // The first launch passes typed text here (a notes folder, a remote, a join code), so this is the line a command could
-      // otherwise be smuggled through.
+      // A batch file runs through cmd.exe, which reads its line again, and the batch file may read its arguments again with %~1,
+      // which drops the quotes. So an argument holding any character cmd.exe treats specially (" % ! & | < > ^ ( )) or a control
+      // character is refused, and the rest are quoted so spaces stay inside one argument. The first launch passes typed text
+      // here (a notes folder, a remote, a join code), so this is the line a command could otherwise be smuggled through.
       foreach (string a in args.Prepend(bin))
-        if (a.Any((c) => c == '"' || c == '%' || c == '!' || c < ' ')) return new Result(true, 126, "");
+        if (a.Any((c) => "\"%!&|<>^()".Contains(c) || c < ' ')) return new Result(true, 126, "");
       psi.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
       psi.Arguments = $"/d /s /c \"{string.Join(' ', args.Prepend(bin).Select((a) => $"\"{a}\""))}\"";
     }
