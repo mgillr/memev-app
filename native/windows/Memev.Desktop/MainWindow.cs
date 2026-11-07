@@ -232,14 +232,14 @@ sealed partial class MainWindow : Window
       planLabel = tier.Length == 0 ? J.Str(lp.Item2?["plan"]) : tier;
       Fill();
     });
-    ReadOff(() => CoreCall.Json(new[] { "card", "--json" }) as JsonObject, (c) =>
+    ReadOff(() => CoreCall.JsonIfRunning(new[] { "card", "--json" }) as JsonObject, (c) =>
     {
       string p = J.Str(c?["project"]);
       projectName = p.Contains('/') || p.Contains('\\') ? "" : p;
       Fill();
     });
     ReadOff(ReadDoctor, (d) => { doctor = d; Fill(); });
-    ReadOff(() => CoreCall.Json(new[] { "bus", "roster", "--json" }) as JsonObject, (r) => { roster = r; Fill(); });
+    ReadOff(() => CoreCall.JsonIfRunning(new[] { "bus", "roster", "--json" }) as JsonObject, (r) => { roster = r; Fill(); });
   }
 
   static string Plain(string v) => v.Length <= 31 && v.All((c) => char.IsAsciiDigit(c) || c == '.') ? v : "";
@@ -258,7 +258,7 @@ sealed partial class MainWindow : Window
   {
     if (loading) return;
     loading = true;
-    Task.Run(() => (Read.Load(), ReadDoctor(), CoreCall.Json(new[] { "bus", "roster", "--json" }) as JsonObject)).ContinueWith((t) =>
+    Task.Run(() => (Read.Load(), ReadDoctor(), CoreCall.JsonIfRunning(new[] { "bus", "roster", "--json" }) as JsonObject)).ContinueWith((t) =>
     {
       loading = false;
       if (t.Status == TaskStatus.RanToCompletion) { (glance, doctor, roster) = t.Result; glanceRead = true; }

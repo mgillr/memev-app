@@ -191,7 +191,7 @@ sealed partial class MainWindow
     guideRows.Children.Add(Note("Reading the seats on the message bus."));
     primary.IsEnabled = false;
     guideBusy = true;
-    Task.Run(() => CoreCall.Json(new[] { "bus", "roster", "--json" }) as System.Text.Json.Nodes.JsonObject).ContinueWith((t) =>
+    Task.Run(() => CoreCall.JsonIfRunning(new[] { "bus", "roster", "--json" }) as System.Text.Json.Nodes.JsonObject).ContinueWith((t) =>
     {
       guideBusy = false;
       if (t.Status == TaskStatus.RanToCompletion && t.Result != null) roster = t.Result;

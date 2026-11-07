@@ -413,7 +413,8 @@ public static class Read
     }
     var doctor = Core.Capture(bin, new[] { "doctor", "--json" }, 3000);
     if (doctor.Done && doctor.ExitCode == 0 && JsonValue(doctor.Output)) LoadChecks(g, doctor.Output);
-    var card = Core.Capture(bin, new[] { "card", "--json" }, 3000);
+    // card starts Memev when it is not running, so it is read only while status says Memev runs: reading never starts it
+    var card = g.DaemonUp ? Core.Capture(bin, new[] { "card", "--json" }, 3000) : new Core.Result(true, 1, "");
     if (card.Done && card.ExitCode == 0 && JsonValue(card.Output))
     {
       if (Json.TryGet(card.Output, "project", out string project) && PlainLabel(project, 79)) g.Project = project;

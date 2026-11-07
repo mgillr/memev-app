@@ -26,6 +26,13 @@ static class CoreCall
 
   public static bool HaveBinary => Core.ResolveBin() != null;
 
+  /// Whether Memev runs, by status --json, which never starts it. card, recall, review, audit and bus start a stopped Memev, so
+  /// the window runs them only when this is true: a read never starts Memev (only Start Memev, after its sheet, does).
+  public static bool Running() => Run(new[] { "status", "--json" }, 5000).Code == 0;
+
+  /// A read that would start a stopped Memev, run only while it runs.
+  public static JsonNode? JsonIfRunning(string[] args, int timeoutMs = 10000) => Running() ? Json(args, timeoutMs) : null;
+
   public static JsonNode? Json(string[] args, int timeoutMs = 10000)
   {
     var (code, output) = Run(args, timeoutMs);
@@ -160,6 +167,11 @@ static class Pages
   public static PageData Memory(string query)
   {
     var d = new PageData();
+    if (!CoreCall.Running())
+    {
+      d.Sections.Add(new PageSection { Head = "REVIEW", Empty = "Memev is not running, so the review list is not read.", Tab = "review", Source = "memev review list --json" });
+      return d;
+    }
     const string recall = "memev recall <words> --json";
     if (query.Trim().Length > 0)
     {
@@ -288,7 +300,7 @@ static class Pages
   {
     var d = new PageData();
     const string rosterSrc = "memev bus roster --json";
-    if (CoreCall.Json(new[] { "bus", "roster", "--json" }) is JsonObject r)
+    if (CoreCall.JsonIfRunning(new[] { "bus", "roster", "--json" }) is JsonObject r)
     {
       // bus.mjs roster(): a row is a seat, or a computer with no app yet (seat null); state is live, stale, never joined or removed
       var seats = J.Objects(r["seats"]).ToList();
@@ -345,7 +357,7 @@ static class Pages
   public static PageData Projects(string project, string star)
   {
     var sec = new PageSection { Head = "CURRENT PROJECT", Empty = "No project is set for this notes folder yet.", Source = "memev card --json" };
-    if (CoreCall.Json(new[] { "card", "--json" }) is JsonObject c)
+    if (CoreCall.JsonIfRunning(new[] { "card", "--json" }) is JsonObject c)
     {
       string p = J.Str(c["project"]), s = J.Str(c["north_star"]);
       if (p.Length > 0 && !p.Contains('/') && !p.Contains('\\')) sec.Rows.Add(new PageRow(p, s.Length == 0 ? "No north star yet." : Paths.Show(s), 0));
