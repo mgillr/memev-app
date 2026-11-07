@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+case "${1:-}" in
+  status|doctor|card)
+    cat "$dir/$1.json"
+    ;;
+  *)
+    echo "unknown command" >&2
+    exit 2
+    ;;
+esac
