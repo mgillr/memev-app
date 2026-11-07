@@ -61,7 +61,7 @@ try {
   if ($wcode -ne 0) { throw "the window's self-check exited $wcode" }
   # Every screen renders against the live core, the amber rules hold, six first reads, and the three new screens read it.
   foreach ($want in 'match=1', 'secret=absent', 'leak=absent', 'reads=6', 'pips=14', 'amber_max=1', 'amber_ring=1', 'sheets_ok=1',
-    'connect_read=ok', 'agents_read=ok', 'screen=bots|Bots and agents|Team,Connect,Background agents,Access', 'verdict=pass') {
+    'connect_read=ok', 'agents_read=ok', 'import_read=ok', 'chats_read=ok', 'chats_on=0', 'screen=bots|Bots and agents|Team,Connect,Background agents,Access', 'verdict=pass') {
     if ($lines -cnotcontains $want) { throw "missing: $want" }
   }
 

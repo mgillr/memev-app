@@ -150,6 +150,17 @@ sealed partial class MainWindow
     Out($"import_sources={scanSources.Count}");
     Out($"import_marked={ImportTicked().Count}");
     if (ImportTicked().Count > 0) { var ic = await Sheet("import_confirm", () => ConfirmImport(ImportTicked(), null)); sheetsOk &= ic.Amber == 1 && ic.Ring; }
+    PageData chats = pageData.GetValueOrDefault("chats") ?? new PageData();
+    Out($"chats_read={(chats.ChatsRead ? "ok" : "fail")}");
+    Out($"chats_on={chats.Chats.Count((c) => c.On)}");
+    foreach (ChatRow c in chats.Chats) Out($"chat={c.Channel}|{Chats.State(c)}");
+    var tgs = await Sheet("telegram_setup", TelegramSetupSheet);
+    var wan = await Sheet("whatsapp_on", WhatsAppOnSheet);
+    var dcs = await Sheet("discord_setup", DiscordSetupSheet);
+    var off = await Sheet("chat_off", () => ChatOffSheet("telegram"));
+    sheetsOk &= tgs.Amber == 1 && wan.Amber == 1 && dcs.Amber == 1 && off.Amber == 0 && off.Main == "red";
+    var qr = Chats.Picture("https://t.me/memev_bot?start=abc123");
+    Out($"qr_modules={qr.Tag}");
     var undo = await Sheet("import_undo", () => UndoSheet("import-1"));
     sheetsOk &= undo.Amber == 0 && undo.Main == "red";
     foreach (ConfirmKind k in Enum.GetValues<ConfirmKind>())

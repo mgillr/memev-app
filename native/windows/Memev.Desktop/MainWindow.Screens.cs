@@ -235,6 +235,7 @@ sealed partial class MainWindow
         }
         if (sec.Rows.Count > 0 || sec.Empty.Length > 0) Put(Block(sec.Head, new UIElement[] { list }, source: sec.Source), v);
       }
+      if (id == "chats") BuildChats(views[""], d);
       if (id == "bots")
       {
         BuildConnect(views["connect"], d);

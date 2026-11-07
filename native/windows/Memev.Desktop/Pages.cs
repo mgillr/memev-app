@@ -16,15 +16,22 @@ namespace Memev.Desktop;
 static class CoreCall
 {
   /// (exit code, stdout). -1 when the core could not be found or did not answer in time; 126 when an argument was refused.
-  public static (int Code, string Output) Run(string[] args, int timeoutMs = 10000)
+  public static (int Code, string Output) Run(string[] args, int timeoutMs = 10000, IDictionary<string, string>? env = null)
   {
     string? bin = Core.ResolveBin();
     if (bin == null) return (-1, "");
-    var r = Core.Capture(bin, args, timeoutMs);
+    var r = Core.Capture(bin, args, timeoutMs, env);
     return r.Done ? (r.ExitCode, r.Output) : (-1, "");
   }
 
   public static bool HaveBinary => Core.ResolveBin() != null;
+
+  /// Whether Memev runs, by status --json, which never starts it. card, recall, review, audit and bus start a stopped Memev, so
+  /// the window runs them only when this is true: a read never starts Memev (only Start Memev, after its sheet, does).
+  public static bool Running() => Run(new[] { "status", "--json" }, 5000).Code == 0;
+
+  /// A read that would start a stopped Memev, run only while it runs.
+  public static JsonNode? JsonIfRunning(string[] args, int timeoutMs = 10000) => Running() ? Json(args, timeoutMs) : null;
 
   public static JsonNode? Json(string[] args, int timeoutMs = 10000)
   {
@@ -151,6 +158,8 @@ sealed class PageData
   public List<RunnerRow> Runners = new();
   public bool RunnersRead;
   public List<SeatRow> Seats = new();
+  public List<ChatRow> Chats = new();
+  public bool ChatsRead;
 }
 
 static class Pages
@@ -160,6 +169,11 @@ static class Pages
   public static PageData Memory(string query)
   {
     var d = new PageData();
+    if (!CoreCall.Running())
+    {
+      d.Sections.Add(new PageSection { Head = "REVIEW", Empty = "Memev is not running, so the review list is not read.", Tab = "review", Source = "memev review list --json" });
+      return d;
+    }
     const string recall = "memev recall <words> --json";
     if (query.Trim().Length > 0)
     {
@@ -192,6 +206,17 @@ static class Pages
         Rows = { new PageRow($"{J.Str(a["memories"])} memories, {J.Str(a["likely_junk"])} likely junk", Paths.Show(J.Str(a["next"])), 0) } });
     else d.Sections.Add(new PageSection { Head = "CLEAN-UP", Empty = "The clean-up report did not answer.", Tab = "review", Source = "memev audit --json" });
     return d;
+  }
+
+  public static PageData ChatPage()
+  {
+    var (rows, read) = Memev.Desktop.Chats.Read();
+    int on = rows.Count((c) => c.On);
+    return new PageData
+    {
+      Chats = rows, ChatsRead = read,
+      Sentences = { [""] = !read ? "The chat status did not answer." : on == 0 ? "Every chat channel is off. Each one stays off until you turn it on." : $"{on} of {rows.Count} chat channels {(on == 1 ? "is" : "are")} on." },
+    };
   }
 
   public static PageData Checked()
@@ -288,7 +313,7 @@ static class Pages
   {
     var d = new PageData();
     const string rosterSrc = "memev bus roster --json";
-    if (CoreCall.Json(new[] { "bus", "roster", "--json" }) is JsonObject r)
+    if (CoreCall.JsonIfRunning(new[] { "bus", "roster", "--json" }) is JsonObject r)
     {
       // bus.mjs roster(): a row is a seat, or a computer with no app yet (seat null); state is live, stale, never joined or removed
       var seats = J.Objects(r["seats"]).ToList();
@@ -345,7 +370,7 @@ static class Pages
   public static PageData Projects(string project, string star)
   {
     var sec = new PageSection { Head = "CURRENT PROJECT", Empty = "No project is set for this notes folder yet.", Source = "memev card --json" };
-    if (CoreCall.Json(new[] { "card", "--json" }) is JsonObject c)
+    if (CoreCall.JsonIfRunning(new[] { "card", "--json" }) is JsonObject c)
     {
       string p = J.Str(c["project"]), s = J.Str(c["north_star"]);
       if (p.Length > 0 && !p.Contains('/') && !p.Contains('\\')) sec.Rows.Add(new PageRow(p, s.Length == 0 ? "No north star yet." : Paths.Show(s), 0));
