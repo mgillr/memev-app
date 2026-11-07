@@ -75,7 +75,11 @@ cat > "$res/bin/memev" <<'SH'
 here=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 # the app's own git comes first, so the core never reaches for the system's
 PATH="$here/git/bin:$PATH"
-export PATH
+# the core writes its own launcher, which AI apps and the login service run; it puts these folders first on PATH too
+MEMEV_TOOLS_PATH="$here/git/bin"
+# no system-wide git settings reach the notes repository
+GIT_CONFIG_NOSYSTEM=1
+export PATH MEMEV_TOOLS_PATH GIT_CONFIG_NOSYSTEM
 exec "$here/node/bin/node" "$here/core/bin/memev.mjs" "$@"
 SH
 chmod +x "$res/bin/memev"
