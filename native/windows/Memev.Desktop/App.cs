@@ -94,7 +94,21 @@ sealed class MainWindow : Window
   readonly TextBlock healthSentence = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap };
   readonly StackPanel checks = new();
   readonly TextBlock laterBody = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap };
-  readonly StackPanel overviewPage, healthPage, laterPage;
+  readonly StackPanel overviewPage, healthPage, laterPage, guidePage;
+  readonly TextBlock primaryLabel = new() { Text = "Refresh", Foreground = new SolidColorBrush(Theme.Ink), FontWeight = FontWeights.Medium };
+  readonly Button back;
+  Button helpButton = null!;
+  readonly TextBlock guideText = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap, MaxWidth = 560, HorizontalAlignment = HorizontalAlignment.Left };
+  readonly TextBlock guideDetail = new() { TextWrapping = TextWrapping.Wrap, MaxWidth = 560, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0) };
+  readonly TextBox guideEntry = new() { MinWidth = 420, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0), Padding = new Thickness(6, 4, 6, 4) };
+  readonly StackPanel guideChoices = new() { Margin = new Thickness(0, 12, 0, 0) };
+  readonly StackPanel guideApps = new() { Margin = new Thickness(0, 12, 0, 0) };
+  readonly CheckBox guideBackup = new() { Content = "Record this remote, and push my notes to it", Margin = new Thickness(0, 8, 0, 0) };
+  Button? choiceThis, choiceOther;
+  bool inGuide, guideBusy;
+  int guideStep;
+  GuidePlan plan = new();
+  List<GuideApp> apps = new();
   Glance glance = new();
   int attentionRows;
   bool loading;
@@ -126,6 +140,7 @@ sealed class MainWindow : Window
       top.Children.Add(b);
     }
     var help = NavButton(new TextBlock { Text = "Help and support", Foreground = B(theme.NavText) }, (_, _) => ShowHelp());
+    helpButton = help;
     var column = new DockPanel { LastChildFill = false };
     DockPanel.SetDock(help, Dock.Bottom);
     column.Children.Add(help);
@@ -135,14 +150,20 @@ sealed class MainWindow : Window
 
     primary = new Button
     {
-      Content = new TextBlock { Text = "Refresh", Foreground = new SolidColorBrush(Theme.Ink), FontWeight = FontWeights.Medium },
+      Content = primaryLabel,
       Background = new SolidColorBrush(Theme.Amber), BorderThickness = new Thickness(0), Padding = new Thickness(16, 6, 16, 6),
       HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Tag = "primary",
-      Command = RefreshCommand,
     };
+    primary.Click += (_, _) => { if (inGuide) GuideNext(); else Reload(); };
     var header = new DockPanel { Margin = new Thickness(0, 0, 0, 16) };
     DockPanel.SetDock(primary, Dock.Right);
     header.Children.Add(primary);
+    back = NavButton(new TextBlock { Text = "Back", Foreground = B(theme.NavText) }, (_, _) => GuideBack());
+    back.HorizontalAlignment = HorizontalAlignment.Left;
+    back.Visibility = Visibility.Collapsed;
+    back.Margin = new Thickness(0, 0, 12, 0);
+    DockPanel.SetDock(back, Dock.Left);
+    header.Children.Add(back);
     pageTitle.Foreground = B(theme.Text);
     header.Children.Add(pageTitle);
 
@@ -170,6 +191,18 @@ sealed class MainWindow : Window
     page.Children.Add(overviewPage);
     page.Children.Add(healthPage);
     page.Children.Add(laterPage);
+    guideText.Foreground = B(theme.Sub);
+    guideDetail.Foreground = B(theme.Warn);
+    guideEntry.Background = B(theme.Selected);
+    guideEntry.Foreground = B(theme.Text);
+    guideBackup.Foreground = B(theme.Text);
+    choiceThis = NavButton(new TextBlock { Text = "This computer", Foreground = B(theme.NavText) }, (_, _) => Pick(1));
+    choiceOther = NavButton(new TextBlock { Text = "Another computer", Foreground = B(theme.NavText) }, (_, _) => Pick(0));
+    guideChoices.Children.Add(choiceThis);
+    guideChoices.Children.Add(choiceOther);
+    guidePage = new StackPanel { Visibility = Visibility.Collapsed };
+    foreach (UIElement e in new UIElement[] { guideText, guideChoices, guideEntry, guideApps, guideBackup, guideDetail }) guidePage.Children.Add(e);
+    page.Children.Add(guidePage);
 
     var root = new Grid();
     root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) });
@@ -185,18 +218,19 @@ sealed class MainWindow : Window
     root.Children.Add(scroll);
     Content = root;
 
-    CommandBindings.Add(new CommandBinding(RefreshCommand, (_, _) => Reload()));
+    CommandBindings.Add(new CommandBinding(RefreshCommand, (_, _) => { if (!inGuide) Reload(); }));
     InputBindings.Add(new KeyBinding(RefreshCommand, Key.R, ModifierKeys.Control));
 
     glance = Read.Load();
     Fill();
     ShowPage(0);
+    if (WantGuide() && glance.HaveBinary) GuideShow(0);
     ContentRendered += (_, _) =>
     {
       if (selfCheck) { Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(ReportAndQuit)); return; }
       int ms = int.TryParse(Environment.GetEnvironmentVariable("MEMEV_POLL_MS"), out int v) ? v : 5000;
       var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(200, ms)) };
-      timer.Tick += (_, _) => Reload();
+      timer.Tick += (_, _) => { if (!inGuide) Reload(); };
       timer.Start();
     };
   }
@@ -272,7 +306,7 @@ sealed class MainWindow : Window
 
   void Page(StackPanel visible)
   {
-    foreach (StackPanel p in new[] { overviewPage, healthPage, laterPage }) p.Visibility = p == visible ? Visibility.Visible : Visibility.Collapsed;
+    foreach (StackPanel p in new[] { overviewPage, healthPage, laterPage, guidePage }) p.Visibility = p == visible ? Visibility.Visible : Visibility.Collapsed;
   }
 
   void ShowPage(int index)
@@ -288,6 +322,197 @@ sealed class MainWindow : Window
 
   void ShowHelp() { Select(-1); pageTitle.Text = "Help and support"; laterBody.Text = "Help and support is not in this slice. This app sends nothing."; Page(laterPage); }
 
+  // ---- the first launch, as native/linux/src/ui.c runs it
+
+  // MEMEV_GUIDE=off skips it, MEMEV_GUIDE=1 shows it; otherwise it shows until it has been finished once on this computer
+  static string MarkerPath()
+  {
+    string? cfg = Environment.GetEnvironmentVariable("MEMEV_CONFIG_DIR");
+    string dir = !string.IsNullOrEmpty(cfg) ? cfg : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "memev");
+    return System.IO.Path.Combine(dir, "desktop-first-launch-done");
+  }
+
+  static bool WantGuide()
+  {
+    string? flag = Environment.GetEnvironmentVariable("MEMEV_GUIDE");
+    if (flag == "off") return false;
+    if (flag == "1") return true;
+    return !File.Exists(MarkerPath());
+  }
+
+  void Pick(int which)
+  {
+    plan.FirstComputer = which;
+    if (choiceThis != null) choiceThis.Background = which == 1 ? B(theme.Selected) : Brushes.Transparent;
+    if (choiceOther != null) choiceOther.Background = which == 0 ? B(theme.Selected) : Brushes.Transparent;
+  }
+
+  void SetNav(bool on) { foreach (Button b in navButtons) b.IsEnabled = on; healthButton.IsEnabled = on; helpButton.IsEnabled = on; }
+
+  void GuideShow(int step)
+  {
+    inGuide = true;
+    guideStep = step;
+    SetNav(false);
+    Select(-1);
+    Page(guidePage);
+    back.Visibility = step > 0 ? Visibility.Visible : Visibility.Collapsed;
+    foreach (UIElement e in new UIElement[] { guideEntry, guideChoices, guideApps, guideBackup }) e.Visibility = Visibility.Collapsed;
+    guideDetail.Text = "";
+    primaryLabel.Text = "Continue";
+    if (step == 0)
+    {
+      pageTitle.Text = "Is this your first computer?";
+      guideText.Text = "Nothing is created, connected or sent on this step.";
+      guideChoices.Visibility = Visibility.Visible;
+    }
+    else if (step == 1 && plan.FirstComputer == 0)
+    {
+      pageTitle.Text = "Join another computer";
+      guideText.Text = "The join runs only when you press the button. It contacts the other computer.";
+      guideEntry.Visibility = Visibility.Visible;
+      primaryLabel.Text = "Join the other computer";
+    }
+    else if (step == 1)
+    {
+      pageTitle.Text = "Where should the notes live?";
+      guideText.Text = "Type a full path. The folder is created only when you continue, and only on this computer.";
+      guideEntry.Visibility = Visibility.Visible;
+    }
+    else if (step == 2)
+    {
+      pageTitle.Text = "Which apps should Memev know?";
+      guideText.Text = "The list is the core's own client list. A tick is remembered here. Nothing is connected: that list has no id, and this window does not keep its own list.";
+      LoadApps();
+      guideApps.Visibility = Visibility.Visible;
+    }
+    else if (step == 3)
+    {
+      pageTitle.Text = "Back up to your own git remote?";
+      guideText.Text = "Leave this blank to skip it. Nothing is recorded unless you tick the line. If you record a remote, Memev pushes your notes to it: when it starts, every 5 minutes by default, and when it stops.";
+      guideEntry.Visibility = Visibility.Visible;
+      guideBackup.Visibility = Visibility.Visible;
+      guideBackup.IsChecked = false;
+    }
+    else
+    {
+      pageTitle.Text = "Check that a note can be saved";
+      guideText.Text = "This uses the core on this computer. It does not use sample figures.";
+      primaryLabel.Text = "Check the notes";
+    }
+  }
+
+  // The client list is read off the window's thread (it can take seconds), then the rows are drawn on it.
+  void LoadApps()
+  {
+    if (apps.Count > 0 || guideBusy) return;
+    guideApps.Children.Clear();
+    string? bin = Core.ResolveBin();
+    if (bin == null) { guideApps.Children.Add(Line("The client list did not parse.")); return; }
+    guideBusy = true;
+    primary.IsEnabled = false;
+    guideApps.Children.Add(Line("Reading the core's client list."));
+    Task.Run(() => { var r = Core.Capture(bin, new[] { "clients" }, 10000); return r.Done && r.ExitCode == 0 ? Guide.ParseClients(r.Output) : new List<GuideApp>(); })
+      .ContinueWith((t) =>
+      {
+        guideBusy = false;
+        primary.IsEnabled = true;
+        apps = t.Status == TaskStatus.RanToCompletion ? t.Result : new List<GuideApp>();
+        guideApps.Children.Clear();
+        if (apps.Count == 0) { guideApps.Children.Add(Line("The client list did not parse.")); return; }
+        foreach (GuideApp app in apps)
+          guideApps.Children.Add(new CheckBox { Content = $"{app.Name}: {app.State}", IsChecked = false, IsEnabled = app.Selectable, Tag = app.Name, Foreground = B(theme.Text), Margin = new Thickness(0, 2, 0, 2) });
+      }, TaskScheduler.FromCurrentSynchronizationContext());
+  }
+
+  void Collect()
+  {
+    string text = guideEntry.Text ?? "";
+    if (guideStep == 1 && plan.FirstComputer == 0) { plan.JoinCode = text; plan.ConfirmJoin = true; }
+    else if (guideStep == 1) plan.NotesDir = text;
+    else if (guideStep == 2)
+    {
+      plan.Selected.Clear();
+      foreach (CheckBox c in guideApps.Children.OfType<CheckBox>()) if (c.IsChecked == true && c.Tag is string name) plan.Selected.Add(name);
+    }
+    else if (guideStep == 3) { plan.BackupUrl = text; plan.ConfirmBackup = guideBackup.IsChecked == true; }
+  }
+
+  // The commands run off the window's thread, so Join and the check do not freeze the window while the core works.
+  void RunApply(string failed)
+  {
+    string? bin = Core.ResolveBin();
+    if (bin == null) { guideDetail.Text = failed; if (guideStep == 1) plan.ConfirmJoin = false; return; }
+    guideBusy = true;
+    primary.IsEnabled = false;
+    back.IsEnabled = false;
+    GuidePlan snapshot = plan;
+    Task.Run(() => (ok: Guide.Apply(snapshot, bin, out string detail), detail)).ContinueWith((t) =>
+    {
+      guideBusy = false;
+      primary.IsEnabled = true;
+      back.IsEnabled = true;
+      var (ok, detail) = t.Status == TaskStatus.RanToCompletion ? t.Result : (false, "");
+      if (!ok) { guideDetail.Text = detail.Length > 0 ? detail : failed; if (guideStep == 1) plan.ConfirmJoin = false; return; }
+      if (detail.Length > 0) guideDetail.Text = detail;
+      GuideFinish();
+    }, TaskScheduler.FromCurrentSynchronizationContext());
+  }
+
+  void GuideNext()
+  {
+    if (guideBusy) return;
+    if (guideStep == 0)
+    {
+      if (plan.FirstComputer < 0) { guideDetail.Text = "Choose this computer or another one."; return; }
+      guideEntry.Text = "";
+      GuideShow(1);
+      return;
+    }
+    Collect();
+    if (guideStep == 1 && plan.FirstComputer == 0) { RunApply("Join did not run."); return; }
+    if (guideStep == 1)
+    {
+      if (Guide.Build(plan, out string why) == null) { guideDetail.Text = why.Length > 0 ? why : "That folder cannot be used."; return; }
+      GuideShow(2);
+      return;
+    }
+    if (guideStep == 2)
+    {
+      Guide.Build(plan, out string why);
+      guideEntry.Text = "";
+      GuideShow(3);
+      if (why.Length > 0) guideDetail.Text = why;
+      return;
+    }
+    if (guideStep == 3)
+    {
+      if (Guide.Build(plan, out string why) == null) { guideDetail.Text = why.Length > 0 ? why : "That remote cannot be recorded."; return; }
+      GuideShow(4);
+      return;
+    }
+    RunApply("The check did not pass.");
+  }
+
+  void GuideBack()
+  {
+    if (!inGuide || guideStep <= 0 || guideBusy) return;
+    if (guideStep == 1) plan.ConfirmJoin = false;
+    GuideShow(guideStep - 1);
+  }
+
+  void GuideFinish()
+  {
+    inGuide = false;
+    back.Visibility = Visibility.Collapsed;
+    primaryLabel.Text = "Refresh";
+    SetNav(true);
+    try { string m = MarkerPath(); Directory.CreateDirectory(System.IO.Path.GetDirectoryName(m)!); File.WriteAllText(m, "ok\n"); }
+    catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { }
+    ShowPage(0);
+    Reload();
+  }
+
   static IEnumerable<DependencyObject> All(DependencyObject root)
   {
     yield return root;
@@ -297,6 +522,14 @@ sealed class MainWindow : Window
 
   void ReportAndQuit()
   {
+    if (inGuide)
+    {
+      int count = All(this).OfType<Button>().Count((b) => (b.Tag as string) == "primary" && b.IsVisible);
+      Program.Out($"guide={pageTitle.Text}");
+      Program.Out($"primary_label={primaryLabel.Text}");
+      Program.Out($"primary={count}");
+      Environment.Exit(pageTitle.Text == "Is this your first computer?" && primaryLabel.Text == "Continue" && count == 1 ? 0 : 1);
+    }
     var nodes = All(this).ToList();
     int primaries = nodes.OfType<Button>().Count((b) => (b.Tag as string) == "primary" && b.IsVisible);
     int focusable = nodes.OfType<Button>().Count((b) => b.IsVisible && b.Focusable && b.IsEnabled);

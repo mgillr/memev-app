@@ -30,7 +30,7 @@ $v = Invoke-Window @{} @('--version')
 if ($v.Code -ne 0 -or ($v.Lines -notcontains 'memev-desktop 0.0.1-slice1')) { throw "version: rc $($v.Code), '$($v.Lines -join ' | ')'" }
 
 foreach ($theme in 'dark', 'light') {
-  $r = Invoke-Window @{ MEMEV_BIN = $fix; MEMEV_HEALTH_URL = 'off'; MEMEV_THEME = $theme; MEMEV_SELF_CHECK = '1' } @()
+  $r = Invoke-Window @{ MEMEV_BIN = $fix; MEMEV_HEALTH_URL = 'off'; MEMEV_THEME = $theme; MEMEV_GUIDE = 'off'; MEMEV_SELF_CHECK = '1' } @()
   $r.Lines | ForEach-Object { Write-Output $_ }
   $want = @(
     'overview=Memev 0.1.0 is running for demo. 3 notes are in the index. 1 check to look at.',
@@ -41,6 +41,12 @@ foreach ($theme in 'dark', 'light') {
   if (-not $focus -or [int]$focus -lt 9) { throw "too few focusable controls ($theme): '$focus'" }
   if ($r.Code -ne 0) { throw "the self-check exited $($r.Code) ($theme)" }
 }
+
+# The first launch: it opens on its first question, with Continue as the one filled button.
+$g = Invoke-Window @{ MEMEV_BIN = $fix; MEMEV_HEALTH_URL = 'off'; MEMEV_THEME = 'dark'; MEMEV_GUIDE = '1'; MEMEV_SELF_CHECK = '1' } @()
+$g.Lines | ForEach-Object { Write-Output $_ }
+foreach ($w in 'guide=Is this your first computer?', 'primary_label=Continue', 'primary=1') { if ($g.Lines -cnotcontains $w) { throw "missing (guide): $w" } }
+if ($g.Code -ne 0) { throw "the guide self-check exited $($g.Code)" }
 
 # Built at run time so this file does not itself contain a forbidden name.
 $needles = @(('mem' + 'ev-' + 'mer' + 'ge'), ('cr' + 'dt-' + 'mer' + 'ge'))
@@ -54,7 +60,7 @@ foreach ($f in Get-ChildItem $bin -Include '*.exe', '*.dll' -Recurse) {
 # A live window with health checks off must hold no TCP connection other than loopback. The window must still be running
 # when the connections are read, or the check would pass on a window that had already gone.
 Remove-Item Env:MEMEV_SELF_CHECK -ErrorAction SilentlyContinue
-$env:MEMEV_BIN = $fix; $env:MEMEV_HEALTH_URL = 'off'; $env:MEMEV_THEME = 'dark'; $env:MEMEV_POLL_MS = '500'
+$env:MEMEV_BIN = $fix; $env:MEMEV_HEALTH_URL = 'off'; $env:MEMEV_THEME = 'dark'; $env:MEMEV_POLL_MS = '500'; $env:MEMEV_GUIDE = 'off'
 $p = Start-Process -FilePath $exe -PassThru
 try {
   Start-Sleep -Seconds 3
@@ -65,7 +71,7 @@ try {
   if ($conns.Count -gt 0) { $conns | Format-Table -AutoSize | Out-String | Write-Output; throw 'non-loopback connection' }
 } finally {
   if (-not $p.HasExited) { $p.Kill(); $p.WaitForExit() }
-  Remove-Item Env:MEMEV_BIN, Env:MEMEV_HEALTH_URL, Env:MEMEV_THEME, Env:MEMEV_POLL_MS -ErrorAction SilentlyContinue
+  Remove-Item Env:MEMEV_BIN, Env:MEMEV_HEALTH_URL, Env:MEMEV_THEME, Env:MEMEV_POLL_MS, Env:MEMEV_GUIDE -ErrorAction SilentlyContinue
 }
 
 Write-Output 'self-check passed'

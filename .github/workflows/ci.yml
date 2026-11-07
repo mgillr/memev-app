@@ -57,6 +57,18 @@ jobs:
       - name: Self-check the Windows window
         shell: pwsh
         run: native/windows/test/self-check.ps1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch the core used for the Windows proof
+        shell: pwsh
+        run: |
+          git init -q "$env:RUNNER_TEMP\memev-core"
+          git -C "$env:RUNNER_TEMP\memev-core" fetch --depth 1 https://github.com/mgillr/memev.git c0f47b1efaebc611cb731ca292f54c6d1d1e9896
+          git -C "$env:RUNNER_TEMP\memev-core" checkout -q FETCH_HEAD
+      - name: Prove the Windows first launch against that core
+        shell: pwsh
+        run: native/windows/test/real-core.ps1
   installer-macos:
     strategy:
       fail-fast: false
