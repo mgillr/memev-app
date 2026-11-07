@@ -243,7 +243,7 @@ Normal and All clear:
   - Src: across projects from `card --json` `active_projects`, each `work status <project> --json` [next]: `blocked`, `stale_evidence`, `approvals`; plus `bus roster --json` seats whose `state` is `stale`.
   - All clear: one row "All clear." with "Nothing is blocked, no check is out of date and every bot has reported in." and an ok glyph.
 - **OV-2 Row "Website relaunch: the checkout page is blocked"**, second line "no payment test key", button "See why" (amber) (`logic2.js:33`).
-  - Src: `work status --json` `blocked[]` with the reason; `memev_project_status` task `blocked_reason`, `holder`.
+  - Src: `work status <project> --json` `blocked[]` with the reason; `memev_project_status` task `blocked_reason`, `holder`.
   - Act: "See why" opens the panel. No command.
   - Panel: state bad "Blocked"; why "The checkout page cannot be checked until a payment test key arrives. The key was requested on 3 Nov. The work goes on against a mock."; buttons "Tell the lead" (to Operations) and "Open the project"; facts "Project", "Held by", "Checks" ("0 of 5"), "Last message". Technical: "memev work status --json per project (blocked, with the reason)".
   - Checks come from `memev_contract_status` [next] `passed`, total. Last message comes from `bus tail --json` [next] filtered by the holder seat.
@@ -252,7 +252,7 @@ Normal and All clear:
   - Act: the button opens the bot's panel.
   - Panel: the bot panel, BOT-P below.
 - **OV-4 Row "Website relaunch: the header check is out of date"**, "the header changed after its check passed", button "Re-check now" (`logic2.js:35`).
-  - Src: `work status --json` `stale_evidence[]`.
+  - Src: `work status <project> --json` `stale_evidence[]`.
   - Act: the button opens the panel. In the panel "Re-check now" runs `verify <id>` [next], confirm (rule).
   - Panel: state warn "Out of date" (technical: "stale evidence"); why "The check passed, then the header changed. The pass no longer counts until the check runs again."; facts "Project", "Task", "Passed", "Changed".
 - **OV-5 Row "Support inbox: the reply template check is out of date"**, "the template changed after its check passed", button "Re-check now". Shown after "Show all (4)" (`logic2.js:36`). Same source and panel as OV-4, why "The reply template changed after its check passed."
@@ -387,10 +387,10 @@ First run (`logic3.js:4-7`):
 #### Tab: Overview (`logic3.js:90-103`)
 
 - Sentence: "14 of 31 tasks checked. 2 things need you. Next milestone: design signed off." Other projects: "<done> of <total> tasks checked. 1 thing needs you." or "Nothing needs you."
-  - Src: `work status --json` `done`, `total`, `blocked`, `stale_evidence`. The "Next milestone" clause has no source (G-2).
+  - Src: `work status <project> --json` `done`, `total`, `blocked`, `stale_evidence`. The "Next milestone" clause has no source (G-2).
 - **PO-1 Section "NEEDS YOU"**: "Checkout page is blocked" with "Resolve" (amber), and "Header check is out of date" with "Re-check". Panels as OV-2 and OV-4. Src as OV-1, for this project.
 - **PO-2 Section "PROGRESS"**, two charts:
-  - **PO-3 "Reported is not checked"**, unit "Tasks in this project, by how far each has got". Rows "Requested" 31, "Accepted" 22, "Reported done" 17, "Checked" 14 (technical: requested, accepted, observed, verified). Src: `work status --json` `tasks[].events{requested, accepted, observed, verified}`, counted.
+  - **PO-3 "Reported is not checked"**, unit "Tasks in this project, by how far each has got". Rows "Requested" 31, "Accepted" 22, "Reported done" 17, "Checked" 14 (technical: requested, accepted, observed, verified). Src: `work status <project> --json` `tasks[].events{requested, accepted, observed, verified}`, counted.
   - **PO-4 "Checks passed by task"**, unit "Checks passed of total, trouble first". Rows "Checkout page" 0 of 5, "Accessibility review" 0 of 3, "Home page build" 1 of 4, "Information architecture" 2 of 2, "Content audit" 3 of 3. A row opens Results. Src: `memev_contract_status` / `contract status <id>` [next], per task `passed` and total, sorted by trouble first.
 - **PO-5 Section "MILESTONES"**, tag "Sample, not built yet". A line with four points: "Content audit" done, "Structure" done, "Design signed off" next, "Launch" later, and an amber "today" mark. Reason (inventory §7): milestone entities exist in the engine, but no tool, route or command reads them (SO-C-B AC03).
 - **PO-6 Expander "What your AI apps know about this project"**, "what each session starts with · project memory · checkpoints · people":
@@ -417,7 +417,7 @@ First run (`logic3.js:4-7`):
 
 #### Tab: Work (`logic3.js:63-67`, tasks `:105-110`)
 
-- Sentence: "Home page build is in progress. Checkout page is blocked." Src: `work status --json` `active`, `blocked`.
+- Sentence: "Home page build is in progress. Checkout page is blocked." Src: `work status <project> --json` `active`, `blocked`.
 - **PW-1 Section "TASKS"**, a list, heads "Task", "State", "Held by", "Checks", "Show all (31)". Rows: "Checkout page" Blocked, codex, 0 of 5; "Home page build" In progress, claude-code, 1 of 4; "Accessibility review" Ready, none, 0 of 3; "Information architecture" Checked, codex, 2 of 2; "Content audit" Checked, claude-code, 3 of 3.
   - Src: `memev_project_status` [next] / `work status <project> --json`: task `title`, `state` (READY, IN_PROGRESS, BLOCKED, VERIFIED and the rest, shown in plain words), `holder`, `deps`, `blocked_reason`; checks from `memev_contract_status` for the task's `contract`.
   - Panel: state; why ("Blocked: no payment test key. The key was requested on 3 Nov." or "Held by claude-code · held, renewed 1 min ago."); facts "Depends on", "Held by", "Checks"; buttons and a group "MORE ACTIONS".
@@ -433,8 +433,8 @@ First run (`logic3.js:4-7`):
 
 #### Tab: Risks and decisions (`logic3.js:68-82`)
 
-- Sentence: "1 task is blocked. 2 risks are open." The first clause comes from `work status --json` `blocked`. The second has no source (G-3).
-- **PK-1 Section "BLOCKED RIGHT NOW"**: "Checkout page", "no payment test key", button "Resolve" (amber). Panel as OV-2. Src `work status --json` `blocked`.
+- Sentence: "1 task is blocked. 2 risks are open." The first clause comes from `work status <project> --json` `blocked`. The second has no source (G-3).
+- **PK-1 Section "BLOCKED RIGHT NOW"**: "Checkout page", "no payment test key", button "Resolve" (amber). Panel as OV-2. Src `work status <project> --json` `blocked`.
 - **PK-2 Section "WAITING FOR YOUR DECISION"**, tag "Sample, not built yet". Rows "Hosting: managed or self-run?" ("recommendation: managed · consequence: a monthly cost") and "Launch with or without search?" ("recommendation: without · proceeds either way"), each with "Decide". PLANNED SO-A-05, SO-C-A AC04; work status has an `approvals` field, nothing creates an approval yet.
 - **PK-3 Section "RISKS"**, tag sample, heads "Risk", "Owner", "State", "Show all (3)". Rows "Payment key arrives late", "Header fails contrast", then "Content migration overruns". Panel facts "Impact", "Mitigation", "Owner", "State", "Linked work". PLANNED SO-A-12 C1; no RAID schema on main.
 - **PK-4 Expander "Decisions already made (3)"**, "mock the payment provider · drop the blog migration · static site generator". Rows "Mock the payment provider" ("5 Nov · by you"), "Drop the blog migration" ("5 Nov · by you"), "Static site generator over a hosted CMS" ("3 Nov · ranked head to head"). Src `card --json` [in] `recent_decisions`; `recall --project <p> --json` for notes of kind decision.
@@ -446,7 +446,7 @@ First run (`logic3.js:4-7`):
 
 #### Tab: Results (`logic3.js:83-88`)
 
-- Sentence: "6 of 17 checks pass. 1 check is out of date." Src: `memev_contract_status` `passed`, total, for the project's contracts; `work status --json` `stale_evidence`.
+- Sentence: "6 of 17 checks pass. 1 check is out of date." Src: `memev_contract_status` `passed`, total, for the project's contracts; `work status <project> --json` `stale_evidence`.
 - **PS-1 Page action "Re-check everything"** (amber). Act: `verify` with no id (every open contract) / `memev_contract_verify` [next]. Confirm (rule).
 - **PS-2 Section "OUT OF DATE"**: "Header test", "the header changed after the check passed", button "Re-check". Panel as OV-4.
 - **PS-3 Section "CHECKS BY TASK"**, heads "Task", "Result", "Passed". Rows "Content audit" Passed 3 of 3, "Information architecture" Passed 2 of 2, "Home page build" Not checked yet 1 of 4, "Checkout page" Failed 0 of 5 (red), "Accessibility review" Not checked yet 0 of 3. Three rows carry a second line "deliverable: <name> · <version> · <state>".
@@ -807,6 +807,9 @@ Stage "AFTER INSTALL · ON THE EXECUTIVE OVERVIEW", "three optional questions le
 
 ## 3. Gap list: drawn as working, with no command in COVERAGE.md
 
+Doctor ids: `update` and `writers` appear in `doctor --json` only when there is something to report. An absent id means that check is fine, and the pip shows fine.
+
+
 Each item below is drawn without a "Sample" tag and outside "Coming later", so a person would read it as working. COVERAGE.md has no command for it, or marks the command as waiting for a core addition. **The app must flag each one, never fake it.** Until the core has the command, the element shows what the core does say, or it is hidden, or it carries the "Sample, not built yet" tag.
 
 I found these by listing every `memev ...`, `memev_*` and `bus_*` token in the mockup's command strings, matching them against COVERAGE.md, and then checking each drawn element against its source.
@@ -840,6 +843,15 @@ I found these by listing every `memev ...`, `memev_*` and `bus_*` token in the m
 - **G-27 Most recent memories.** MS-3 "MOST RECENT" with no search typed. `recall` needs a query; `memev_list` lists a folder, not by recency.
 
 ## 4. Conflicts to settle before building
+
+**Owner rulings, 7 Nov 2026 about 18:25Z (asked in the lead's session). They settle D-1, D-2, D-4 and D-5:**
+
+- D-1: the install wizard runs `connect`, the lead, `github setup`, `service` and `cloud` itself, each after a confirmation that names what it changes. CLI-CONTRACT.md is rewritten to match.
+- D-2: the Operations chat sends on Enter, with the recipient named in the prompt box. Every other action keeps its confirmation.
+- D-4: the person's own paths are shown (the notes folder, project outputs), shortened with ~. Token, key and system paths never are.
+- D-5: the support address goes into Help and support. The owner allowed the company name in both repositories.
+- D-3, D-6 and D-7 stand as written below.
+
 
 These are not missing core commands. They are places where the design and this repository's own rules disagree.
 

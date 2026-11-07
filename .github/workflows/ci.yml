@@ -57,6 +57,18 @@ jobs:
       - name: Self-check the Windows window
         shell: pwsh
         run: native/windows/test/self-check.ps1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch the core used for the Windows proof
+        shell: pwsh
+        run: |
+          git init -q "$env:RUNNER_TEMP\memev-core"
+          git -C "$env:RUNNER_TEMP\memev-core" fetch --depth 1 https://github.com/mgillr/memev.git c0f47b1efaebc611cb731ca292f54c6d1d1e9896
+          git -C "$env:RUNNER_TEMP\memev-core" checkout -q FETCH_HEAD
+      - name: Prove the Windows first launch against that core
+        shell: pwsh
+        run: native/windows/test/real-core.ps1
   installer-macos:
     strategy:
       fail-fast: false
@@ -79,3 +91,31 @@ jobs:
           name: Memev-macos-${{ matrix.runner }}
           path: installers/macos/dist/Memev-*.dmg*
           retention-days: 14
+  installer-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Inno Setup
+        shell: pwsh
+        run: if (-not (Get-Command iscc.exe -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build the installer
+        shell: pwsh
+        run: installers/windows/build.ps1
+      - name: Install, start, read, first launch, stop and uninstall
+        shell: pwsh
+        run: installers/windows/test/install-check.ps1 -Setup (Get-ChildItem installers/windows/dist/Memev-*-setup.exe | Select-Object -First 1).FullName
+      # the setup program that passed the check, to download and run; not a release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: memev-windows-setup
+          path: |
+            installers/windows/dist/Memev-*-setup.exe
+            installers/windows/dist/Memev-*-setup.exe.sha256
+          if-no-files-found: error
+          retention-days: 30

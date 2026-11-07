@@ -5,6 +5,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -70,9 +71,11 @@ static class Program
     string[] bad = { "https://127.0.0.1/healthz", "http://10.1.2.3/healthz", "http://192.0.2.1/healthz", "http://127.0.0.1:7787@192.0.2.1/",
       "http://localhost.example/healthz", "http://127.0.0.1:0/healthz", "http://127.0.0.1:99999/healthz", "file:///tmp/x", "" };
     foreach (string u in bad) Expect(!Loopback.TryParse(u, out _, out _, out _), u);
+    // the refusal is timed after a warm-up call, so a cold start does not count; a connect attempt would take the whole 500 ms
+    Http.Get("http://192.0.2.2/healthz", 500);
     var sw = Stopwatch.StartNew();
     Expect(Http.Get("http://192.0.2.1/healthz", 500) == null, "reject public-looking test address");
-    Expect(sw.ElapsedMilliseconds < 100, "reject did not wait on a connect");
+    Expect(sw.ElapsedMilliseconds < 400, $"reject did not wait on a connect ({sw.ElapsedMilliseconds} ms)");
   }
 
   static TcpListener Serve(out Thread server)
@@ -194,8 +197,35 @@ static class Program
     Expect(Read.Health(g) == "Memev is not on this computer yet.", Read.Health(g));
   }
 
-  static int Main()
+  // `proof <memev> <notes folder>`: the first launch against a real core, as native/linux/src/proof.c. A remote address is
+  // given without the tick, so the caller can check that none was recorded.
+  static int Proof(string bin, string notes)
   {
+    var clients = Core.Capture(bin, new[] { "clients" }, 30000);
+    if (!clients.Done || clients.ExitCode != 0) { Console.Error.WriteLine("clients command failed"); return 1; }
+    var apps = Guide.ParseClients(clients.Output);
+    if (apps.Count < 1) { Console.Error.WriteLine("the client list did not parse"); return 1; }
+    Console.WriteLine($"clients={apps.Count} selectable={apps.Count((a) => a.Selectable)}");
+    var plan = new GuidePlan { FirstComputer = 1, NotesDir = notes, BackupUrl = "file:///C:/memev-proof-not-recorded.git", ConfirmBackup = false };
+    if (int.TryParse(Environment.GetEnvironmentVariable("MEMEV_GUIDE_PORT"), out int port)) plan.Port = port;
+    bool ok = Guide.Apply(plan, bin, out string detail);
+    if (!ok) { Console.Error.WriteLine($"proof failed: {detail}"); Core.Capture(bin, new[] { "stop" }, 15000); return 1; }
+    Environment.SetEnvironmentVariable("MEMEV_BIN", bin);
+    Environment.SetEnvironmentVariable("MEMEV_HEALTH_URL", "off");
+    Glance g = Read.Load();
+    string sentence = Read.Overview(g);
+    Console.WriteLine($"overview={sentence}");
+    Console.WriteLine($"notes={g.Notes}");
+    Core.Capture(bin, new[] { "stop" }, 15000);
+    if (!g.DaemonUp || !sentence.Contains("is running") || sentence.Contains("not running")) { Console.Error.WriteLine("overview did not come from a running core"); return 1; }
+    if (g.Notes < 1) { Console.Error.WriteLine("the core reported no notes"); return 1; }
+    Console.WriteLine("proof=ok");
+    return 0;
+  }
+
+  static int Main(string[] args)
+  {
+    if (args.Length == 3 && args[0] == "proof") return Proof(args[1], args[2]);
     string tmp = Path.Combine(Path.GetTempPath(), "memev-read-" + Guid.NewGuid().ToString("N").Substring(0, 8));
     Directory.CreateDirectory(tmp);
     try
@@ -207,6 +237,7 @@ static class Program
       TestHealthOnly(tmp);
       TestHeldOpen(tmp);
       TestMissing(tmp);
+      GuideTests.Run(Expect, tmp);
     }
     finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
     if (failed > 0) { Console.Error.WriteLine($"{failed} reader test(s) failed"); return 1; }
