@@ -111,3 +111,37 @@ Actions run the named command with a fixed argument list, behind a confirmation 
 | `hook` | Run by the AI apps on each event, never by a person. |
 | `mcp`, `serve` | The server the apps talk to; the app is a client of it. |
 | `init` | Run by the guided first launch, not as a page. |
+
+## Found by the rev2 map (REV2-SCREENS.md), missing above
+
+| Core function | Kind | Page | Status |
+|---|---|---|---|
+| `contracts on`, `off`, `status` | read and action | Checked work; Health "Work held to checks" | next |
+| `onboarding --milestones --json`, `onboarding --json` | read | Settings, General: Set-up checklist; Install | next |
+| `doctor --bundle` | action | Health; Help and support | next |
+| `setup remote --code`, `stop`, `log` | action | Bots and agents, Connect: Get help setting up | next |
+| `token rotate` | action | Bots and agents, Access | next |
+| `deployment set` | action | Settings, Advanced: Where Memev runs | next |
+| `project set` | action | Memory, Search; Settings, Advanced: Pin a name | next |
+
+## Core gaps: drawn as working in rev2, with no core command yet
+
+Each is closed by a core pull request in memev, never faked in the app. Until it lands, the element shows what the core says, is hidden, or carries "Sample, not built yet". Numbers are REV2-SCREENS.md section 3.
+
+| Gap | Core addition | Status |
+|---|---|---|
+| G-7, G-8 agent panes and unread counts | `bus since --from --to`, `bus unread --peek` (quiet) | built on core/so-n-15-bus-filters |
+| Runs by day chart | `runner status --days N --json` | built on core/so-n-15-bus-filters |
+| G-1 Start a project | a project create command | next |
+| G-2, G-3, G-4, G-5 milestones, risks, scope history, deliverables | readers for the project's plan, risks, scope log and artifacts | next (SO-A-05, SO-A-06, SO-A-09, SO-A-12) |
+| G-6 model and effort per bot | a runner setting per seat | next |
+| G-9 message to task | a message's task link | next |
+| G-10 who the app sends as | `bus send --as` for the person's seat | next |
+| G-11 connect an app | `clients --json` with ids (SR-2.09.2) | next |
+| G-16 check for an update | a version check | next (SO-N-07) |
+| G-17 back up now | `backup now` | next |
+| G-18 invites | `invite list`, `invite cancel` | next |
+| G-19, G-20, G-21 memory speed, sizes, integrity sweep | status fields from SR-1.35's measures, compaction's report while running, the sweep's last result | next |
+| G-22 people on a project | `recall --kind person` | next |
+| G-23 lease renewal time | the task's last heartbeat time | next |
+| G-27 most recent memories | `recall --recent` | next |
