@@ -1,0 +1,10 @@
+{
+  "memev_repository": "https://github.com/mgillr/memev.git",
+  "memev_commit": "99b12c1ee78021bab6127af524ca3eba800a9d02",
+  "version": "0.1.0",
+  "node": {
+    "version": "22.23.4",
+    "darwin-x64": { "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-darwin-x64.tar.gz", "sha256": "efcc2b0db6f94bf53eddb038fe2b370277a042bd29e4f19b8f8e23598795b819" },
+    "darwin-arm64": { "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-darwin-arm64.tar.gz", "sha256": "c9e1dbc748b33ed2d14f42445191ecaf14c56259c7a9a26d0042c49ec2b66428" }
+  }
+}
