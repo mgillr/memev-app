@@ -18,3 +18,18 @@ jobs:
       - run: node scripts/leak-scan.mjs --history
       - run: node scripts/fence.mjs
       - run: node --test test/fence.test.mjs
+  native-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Linux toolkit
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev xvfb lsof
+      - name: Build and test the Linux window
+        run: make -C native/linux test
+      - name: Fetch the core used for the proof
+        run: |
+          git init -q /tmp/memev-core
+          git -C /tmp/memev-core fetch --depth 1 https://github.com/mgillr/memev.git 7544bb3e64e8fc166dc9fbc52c38f6caecd604e3
+          git -C /tmp/memev-core checkout -q FETCH_HEAD
+      - name: Prove the first launch against that core
+        run: make -C native/linux real-core
