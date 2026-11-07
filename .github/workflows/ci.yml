@@ -26,3 +26,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev xvfb lsof
       - name: Build and test the Linux window
         run: make -C native/linux test
+  native-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Test the Windows reader
+        run: dotnet run --project native/windows/Memev.Reader.Check -c Release
+      - name: Build the Windows window
+        run: dotnet build native/windows/Memev.Desktop -c Release
+      - name: Self-check the Windows window
+        shell: pwsh
+        run: native/windows/test/self-check.ps1
