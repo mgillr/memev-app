@@ -328,7 +328,7 @@ int memev_http_get(const char *url, char *body, size_t bodyn, int timeout_ms) {
   return 0;
 }
 
-static int capture(const char *bin, char *const argv[], char *out, size_t outn, int timeout_ms, int *exit_code) {
+int memev_capture(const char *bin, char *const argv[], char *out, size_t outn, int timeout_ms, int *exit_code) {
   int fds[2];
   if (pipe(fds) != 0) return -1;
   pid_t pid = fork();
@@ -385,7 +385,7 @@ static int executable(const char *path) {
   return path && access(path, X_OK) == 0;
 }
 
-static int resolve_bin(char *out, size_t outn) {
+int memev_resolve_bin(char *out, size_t outn) {
   const char *env = getenv("MEMEV_BIN");
   if (env && env[0]) {
     if (!executable(env)) return -1;
@@ -517,7 +517,7 @@ void memev_glance_clear(MemevGlance *g) {
 int memev_load_glance(MemevGlance *g) {
   memev_glance_clear(g);
   char bin[4096];
-  if (resolve_bin(bin, sizeof bin) != 0) {
+  if (memev_resolve_bin(bin, sizeof bin) != 0) {
     snprintf(g->error, sizeof g->error, "memev was not found");
     return 0;
   }
@@ -525,7 +525,7 @@ int memev_load_glance(MemevGlance *g) {
   char out[262144];
   int code = 0;
   char *status_argv[] = {bin, "status", "--json", NULL};
-  if (capture(bin, status_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out)) {
+  if (memev_capture(bin, status_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out)) {
     g->daemon_up = true;
     char tmp[64];
     if (memev_json_get(out, "version", tmp, sizeof tmp) == 0 && plain_version(tmp))
@@ -537,10 +537,10 @@ int memev_load_glance(MemevGlance *g) {
     }
   }
   char *doctor_argv[] = {bin, "doctor", "--json", NULL};
-  if (capture(bin, doctor_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out))
+  if (memev_capture(bin, doctor_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out))
     load_checks(g, out);
   char *card_argv[] = {bin, "card", "--json", NULL};
-  if (capture(bin, card_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out)) {
+  if (memev_capture(bin, card_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out)) {
     char tmp[200];
     if (memev_json_get(out, "project", tmp, sizeof tmp) == 0 && plain_label(tmp, 79))
       copy_into(g->project, sizeof g->project, tmp);
