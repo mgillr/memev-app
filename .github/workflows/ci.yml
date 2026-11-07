@@ -71,4 +71,4 @@ jobs:
       - name: Build the disk image
         run: installers/macos/build.sh
       - name: Install, start, read, stop and uninstall
-        run: installers/macos/test/install-check.sh installers/macos/dist/Memev-*.dmg
+        run: make -C native/macos proof && MEMEV_PROOF=native/macos/proof installers/macos/test/install-check.sh installers/macos/dist/Memev-*.dmg

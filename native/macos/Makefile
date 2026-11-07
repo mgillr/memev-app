@@ -6,7 +6,8 @@ SDK := $(shell xcrun --show-sdk-path)
 TARGET := $(ARCH)-apple-macos12.0
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L -D_DARWIN_C_SOURCE
 READ := ../linux/src/read.c
-SWIFT := src/main.swift src/App.swift
+GUIDE := ../linux/src/guide.c
+SWIFT := src/main.swift src/App.swift src/Guide.swift
 
 .PHONY: all app test clean
 
@@ -16,17 +17,28 @@ build/read.o: $(READ) ../linux/src/read.h
 	mkdir -p build
 	$(CC) $(CFLAGS) -target $(TARGET) -isysroot $(SDK) -c -o $@ $(READ)
 
-build/shim.o: src/shim.c src/shim.h ../linux/src/read.h
+build/guide.o: $(GUIDE) ../linux/src/guide.h ../linux/src/read.h
+	mkdir -p build
+	$(CC) $(CFLAGS) -target $(TARGET) -isysroot $(SDK) -c -o $@ $(GUIDE)
+
+build/shim.o: src/shim.c src/shim.h ../linux/src/read.h ../linux/src/guide.h
 	mkdir -p build
 	$(CC) $(CFLAGS) -target $(TARGET) -isysroot $(SDK) -c -o $@ src/shim.c
 
-memev-desktop: $(SWIFT) src/bridge.h build/read.o build/shim.o
+memev-desktop: $(SWIFT) src/bridge.h build/read.o build/guide.o build/shim.o
 	swiftc -swift-version 5 -O -target $(TARGET) -sdk $(SDK) -import-objc-header src/bridge.h \
-	  -o $@ $(SWIFT) build/read.o build/shim.o -framework AppKit
+	  -o $@ $(SWIFT) build/read.o build/guide.o build/shim.o -framework AppKit
 
 # The same reader tests as the Linux window, built and run on macOS.
 test-read: $(READ) ../linux/src/read.h ../linux/test/test-read.c
 	$(CC) $(CFLAGS) -o $@ $(READ) ../linux/test/test-read.c
+
+# The guide's rules, tested on macOS with the Linux tests; and the headless proof of the first launch against a real core.
+test-guide: $(GUIDE) $(READ) ../linux/test/test-guide.c
+	$(CC) $(CFLAGS) -o $@ $(GUIDE) $(READ) ../linux/test/test-guide.c
+
+proof: ../linux/src/proof.c $(GUIDE) $(READ)
+	$(CC) $(CFLAGS) -o $@ ../linux/src/proof.c $(GUIDE) $(READ)
 
 Memev.app: memev-desktop Info.plist
 	rm -rf $@
@@ -36,10 +48,11 @@ Memev.app: memev-desktop Info.plist
 
 app: Memev.app
 
-test: test-read memev-desktop Memev.app
+test: test-read test-guide memev-desktop Memev.app
 	cd ../linux && ../macos/test-read
+	./test-guide
 	./test/self-check.sh
 	./test/guard-check.sh
 
 clean:
-	rm -rf build memev-desktop test-read Memev.app
+	rm -rf build memev-desktop test-read test-guide proof Memev.app

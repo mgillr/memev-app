@@ -34,6 +34,16 @@ if [ "${MEMEV_SKIP_WINDOW:-}" != 1 ]; then
   printf '%s\n' "$out" | grep -Fx 'secret=absent' >/dev/null
 fi
 "$bin" stop > /dev/null 2>&1 || true
+# The guided first launch, headless, against the app's own core: a fresh notes folder, a note saved and read back, and the
+# overview from the running core. proof is native/macos's build of the shared guide.
+if [ -n "${MEMEV_PROOF:-}" ]; then
+  mkdir -p "$t/proof-home" "$t/proof-config"
+  pport=$("$app/Contents/Resources/node/bin/node" -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")
+  HOME=$t/proof-home MEMEV_CONFIG_DIR=$t/proof-config MEMEV_NO_SERVICE=1 MEMEV_NO_TUNNEL=1 MEMEV_NO_BACKGROUND=1 MEMEV_NO_DOWNLOAD=1 \
+    MEMEV_GUIDE_PORT=$pport "$MEMEV_PROOF" "$bin" "$t/proof-notes" || { HOME=$t/proof-home "$bin" stop >/dev/null 2>&1 || true; echo "the first-launch proof failed" >&2; exit 1; }
+  HOME=$t/proof-home "$bin" stop >/dev/null 2>&1 || true
+  if git -C "$t/proof-notes" remote get-url origin >/dev/null 2>&1; then echo "a remote was recorded without a tick" >&2; exit 1; fi
+fi
 sleep 1
 rm -rf "$app"
 if pgrep -f "$t/Applications/Memev.app" >/dev/null; then

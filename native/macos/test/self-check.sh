@@ -8,7 +8,7 @@ fix=$root/../linux/test/fixtures/memev
 for bin in "$root/memev-desktop" "$root/Memev.app/Contents/MacOS/memev-desktop"; do
   "$bin" --version | grep -F 'memev-desktop 0.0.1-slice1' >/dev/null
   for theme in dark light; do
-    out=$(MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=$theme MEMEV_SELF_CHECK=1 "$bin")
+    out=$(MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=$theme MEMEV_GUIDE=off MEMEV_SELF_CHECK=1 "$bin")
     printf '%s\n' "$out"
     for want in \
       'overview=Memev 0.1.0 is running for demo. 3 notes are in the index. 1 check to look at.' \
@@ -30,6 +30,12 @@ for bin in "$root/memev-desktop" "$root/Memev.app/Contents/MacOS/memev-desktop";
     fi
   done
 done
+# The guided first launch: its first step, with Continue as the one filled button.
+guide=$(MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=1 MEMEV_SELF_CHECK=1 "$root/memev-desktop")
+printf '%s\n' "$guide"
+for want in 'guide=Is this your first computer?' 'primary_label=Continue' 'primary=1' 'visible=1'; do
+  printf '%s\n' "$guide" | grep -Fx "$want" >/dev/null || { echo "guide missing: $want" >&2; exit 1; }
+done
 # Built at run time so this file does not itself contain a forbidden name.
 needle=$(printf '%s%s' 'mem''ev-' 'mer''ge')
 other=$(printf '%s%s' 'cr''dt-' 'mer''ge')
@@ -44,7 +50,7 @@ plutil -lint "$root/Memev.app/Contents/Info.plist" >/dev/null
 # guard (test/guard-check.sh).
 live=${MEMEV_DESKTOP_BIN:-$root/memev-desktop}
 list=$(mktemp)
-env -u MEMEV_SELF_CHECK -u MEMEV_SELF_CHECK_PNG MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark "$live" >/dev/null 2>&1 &
+env -u MEMEV_SELF_CHECK -u MEMEV_SELF_CHECK_PNG MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=off "$live" >/dev/null 2>&1 &
 pid=$!
 sleep 2
 if ! kill -0 "$pid" 2>/dev/null; then
