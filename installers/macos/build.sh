@@ -13,6 +13,8 @@ case $(uname -m) in
   *) echo "unsupported machine $(uname -m)" >&2; exit 1 ;;
 esac
 version=$(pin version)
+# the oldest macOS the app supports, from the app's own Info.plist, so the two never disagree
+minos=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$repo/native/macos/Info.plist")
 work=$here/build
 dist=$here/dist
 rm -rf "$work"
@@ -64,7 +66,8 @@ tar -xzf "$work/git.tgz" -C "$work"
 gsrc=$(find "$work" -maxdepth 1 -type d -name 'git-*' | head -1)
 # The system's own tools only: a build machine's Homebrew curl or libraries must never reach the app (a Mac without them could not
 # fetch or push over https). curl-config is macOS's own, so the https helpers link /usr/lib/libcurl.
-env PATH=/usr/bin:/bin:/usr/sbin:/sbin make -C "$gsrc" -j4 prefix=/ RUNTIME_PREFIX=YesPlease NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 \
+# Built for the oldest macOS the app supports (minos), not the build machine's: a git built on macOS 15 refuses to start on 12.
+env PATH=/usr/bin:/bin:/usr/sbin:/sbin MACOSX_DEPLOYMENT_TARGET="$minos" make -C "$gsrc" -j4 prefix=/ RUNTIME_PREFIX=YesPlease NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 \
   NO_PYTHON=1 NO_RUST=YesPlease NO_INSTALL_HARDLINKS=1 INSTALL_SYMLINKS=1 CURL_CONFIG=/usr/bin/curl-config DESTDIR="$res/git" install \
   >"$work/git-build.log" 2>&1 || { tail -20 "$work/git-build.log" >&2; exit 1; }
 cp "$gsrc/COPYING" "$res/git/COPYING"
@@ -94,6 +97,15 @@ for f in $(find "$app" -type f -perm -u+x); do
   done
 done
 [ "$bad" = 0 ] || { echo "a program in the app links a library outside the system" >&2; exit 1; }
+
+# Every program in the app starts on the oldest supported macOS: none asks for a newer one than $minos.
+for f in $(find "$app" -type f -perm -u+x); do
+  file -b "$f" | grep -q 'Mach-O' || continue
+  for v in $(otool -l "$f" | awk '/LC_BUILD_VERSION/{b=1} b&&$1=="minos"{print $2; b=0} /LC_VERSION_MIN_MACOSX/{m=1} m&&$1=="version"{print $2; m=0}'); do
+    [ "$(printf '%s\n%s\n' "$v" "$minos" | sort -t. -k1,1n -k2,2n | tail -1)" = "$minos" ] || { echo "${f#$app/} needs macOS $v, newer than $minos" >&2; bad=1; }
+  done
+done
+[ "$bad" = 0 ] || { echo "a program in the app needs a newer macOS than the app supports" >&2; exit 1; }
 
 # 6. The disk image: the app and a link to Applications.
 ln -s /Applications "$work/stage/Applications"
