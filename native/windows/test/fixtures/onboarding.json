@@ -1,0 +1,11 @@
+[
+  {"status":"succeeded","step":"Vault","detail":"C:\\Users\\fixture\\AppData\\vault-marker"},
+  {"status":"succeeded","step":"Memev running","detail":"on this machine (127.0.0.1)"},
+  {"status":"ready","step":"Claude Code","detail":"MCP + session hooks + instructions: memory is loaded and saved automatically","app":"claude-code"},
+  {"status":"needs-manual","step":"Claude Code: one step","detail":"Restart Claude Code","app":"claude-code","note":true},
+  {"status":"needs-manual","step":"Codex CLI","detail":"memev connect codex","app":"codex"},
+  {"status":"needs-manual","step":"Cursor","detail":"memev connect cursor","app":"cursor","token":"should-not-appear"},
+  {"status":"skipped","step":"Zed","detail":"you disconnected it (memev connect zed to undo)","app":"zed"},
+  {"status":"unsupported","step":"Roo","detail":"found, not supported yet; add Memev in Roo's MCP settings by hand (see docs/CLIENTS.md to ask for it)","app":"roo"},
+  {"status":"ready","step":"Contracts","detail":"off: the Stop hook never blocks on a contract (memev contracts on to enable)"}
+]

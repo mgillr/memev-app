@@ -53,13 +53,29 @@ try {
   $out = [System.IO.Path]::GetTempFileName()
   $env:MEMEV_HEALTH_URL = "http://127.0.0.1:$port/healthz"; $env:MEMEV_THEME = 'dark'; $env:MEMEV_GUIDE = 'off'; $env:MEMEV_SELF_CHECK = '1'
   $w = Start-Process -FilePath $exe -RedirectStandardOutput $out -PassThru -NoNewWindow
-  if (-not $w.WaitForExit(60000)) { $w.Kill(); throw 'the window did not exit' }
+  if (-not $w.WaitForExit(180000)) { $w.Kill(); throw 'the window did not exit' }
   $wcode = $w.ExitCode
   Remove-Item Env:MEMEV_HEALTH_URL, Env:MEMEV_THEME, Env:MEMEV_GUIDE, Env:MEMEV_SELF_CHECK -ErrorAction SilentlyContinue
   $lines = @(Get-Content $out); $lines | ForEach-Object { Write-Output $_ }
   if (-not ($lines | Where-Object { $_ -cmatch '^overview=Memev [0-9.]+ is running' })) { throw 'the window did not read the running core' }
   if ($wcode -ne 0) { throw "the window's self-check exited $wcode" }
-  foreach ($want in 'match=1', 'secret=absent') { if ($lines -cnotcontains $want) { throw "missing: $want" } }
+  # Every screen renders against the live core, the amber rules hold, six first reads, and the three new screens read it.
+  foreach ($want in 'match=1', 'secret=absent', 'leak=absent', 'reads=6', 'pips=14', 'amber_max=1', 'amber_ring=1', 'sheets_ok=1',
+    'connect_read=ok', 'agents_read=ok', 'screen=bots|Bots and agents|Team,Connect,Background agents,Access', 'verdict=pass') {
+    if ($lines -cnotcontains $want) { throw "missing: $want" }
+  }
+
+  # Start Memev from the window: the core is stopped, the sheet's main button runs start, and the window reads it running.
+  & cmd.exe /d /c "`"$bin`" stop" | Out-Null
+  $out = [System.IO.Path]::GetTempFileName()
+  $env:MEMEV_HEALTH_URL = "http://127.0.0.1:$port/healthz"; $env:MEMEV_THEME = 'light'; $env:MEMEV_GUIDE = 'off'; $env:MEMEV_SELF_CHECK = '1'; $env:MEMEV_SELF_CHECK_START = '1'
+  $w = Start-Process -FilePath $exe -RedirectStandardOutput $out -PassThru -NoNewWindow
+  if (-not $w.WaitForExit(180000)) { $w.Kill(); throw 'the window did not exit after Start Memev' }
+  Remove-Item Env:MEMEV_HEALTH_URL, Env:MEMEV_THEME, Env:MEMEV_GUIDE, Env:MEMEV_SELF_CHECK, Env:MEMEV_SELF_CHECK_START -ErrorAction SilentlyContinue
+  $lines = @(Get-Content $out); $lines | ForEach-Object { Write-Output $_ }
+  foreach ($want in 'start_sheet=Start Memev?|Start Memev', 'start_before=stopped', 'start_rc=0', 'start_after=running', 'start_banner=hidden') {
+    if ($lines -cnotcontains $want) { throw "missing after Start Memev: $want" }
+  }
 } finally {
   & cmd.exe /d /c "`"$bin`" stop" 2>$null | Out-Null
 }
