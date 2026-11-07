@@ -103,3 +103,12 @@ jobs:
       - name: Install, start, read, first launch, stop and uninstall
         shell: pwsh
         run: installers/windows/test/install-check.ps1 -Setup (Get-ChildItem installers/windows/dist/Memev-*-setup.exe | Select-Object -First 1).FullName
+      # the setup program that passed the check, to download and run; not a release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: memev-windows-setup
+          path: |
+            installers/windows/dist/Memev-*-setup.exe
+            installers/windows/dist/Memev-*-setup.exe.sha256
+          if-no-files-found: error
+          retention-days: 30

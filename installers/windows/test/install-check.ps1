@@ -2,7 +2,8 @@
 # Installs the setup program silently into a temporary folder and home, then: the bundled core inits a notes folder and starts,
 # status and doctor answer, the window reads that live core with its own bundled memev, the first launch saves and reads back
 # a note, the core stops, and uninstall leaves no process from the install and keeps the notes. It opens a real window for
-# about a second, so it runs in CI and is not meant for a person's own screen.
+# about a second, so it runs in CI and is not meant for a person's own screen. No git is on PATH, as on a new PC: the core
+# must use the git the setup brought.
 param([Parameter(Mandatory = $true)][string]$Setup)
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
@@ -15,12 +16,17 @@ Remove-Item Env:MEMEV_BIN, Env:NODE_OPTIONS, Env:NODE_PATH -ErrorAction Silently
 # No node, npm or memev from this machine: stand-ins that fail come first on PATH.
 foreach ($c in 'node', 'npm', 'npx', 'memev') { Set-Content -Encoding ascii -Path "$t\deny\$c.cmd" -Value "@echo $c from PATH was used 1>&2`r`n@exit /b 97" }
 $env:PATH = "$t\deny;" + $env:PATH
+# No git either: every PATH folder that holds one is dropped, and a stand-in that fails catches a lookup through cmd.exe.
+$env:PATH = ($env:PATH -split ';' | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'git.exe')) }) -join ';'
+Set-Content -Encoding ascii -Path "$t\deny\git.cmd" -Value "@echo git from PATH was used 1>&2`r`n@exit /b 97"
+if (Get-Command git.exe -ErrorAction SilentlyContinue) { throw 'a git.exe is still on PATH' }
 
 $p = Start-Process -FilePath $Setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/DIR=$dir" -PassThru -Wait
 if ($p.ExitCode -ne 0) { throw "setup exited $($p.ExitCode)" }
 $bin = Join-Path $dir 'resources\bin\memev.cmd'
 $exe = Join-Path $dir 'memev-desktop.exe'
-foreach ($f in $bin, $exe, (Join-Path $dir 'resources\node\node.exe'), (Join-Path $dir 'resources\core\bin\memev.mjs')) { if (-not (Test-Path $f)) { throw "not installed: $f" } }
+$git = Join-Path $dir 'resources\git\cmd\git.exe'
+foreach ($f in $bin, $exe, $git, (Join-Path $dir 'resources\node\node.exe'), (Join-Path $dir 'resources\core\bin\memev.mjs')) { if (-not (Test-Path $f)) { throw "not installed: $f" } }
 
 function Get-FreePort { $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0); $l.Start(); $n = $l.LocalEndpoint.Port; $l.Stop(); return $n }
 $port = Get-FreePort
@@ -33,6 +39,10 @@ $notes = Join-Path $t 'home\notes'
 try {
   & cmd.exe /d /c "`"$bin`" init --root `"$notes`" --local-only --no-connect --no-service --port $port"
   if ($LASTEXITCODE -ne 0) { throw "init exited $LASTEXITCODE" }
+  # the repository is the notes folder itself: git is pointed at its .git, so it cannot walk up into a parent folder's
+  if (-not (Test-Path (Join-Path $notes '.git'))) { throw 'init made no git repository in the notes folder' }
+  & $git --git-dir (Join-Path $notes '.git') rev-parse --git-dir 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'the bundled git cannot read the notes repository' }
   $status = (& cmd.exe /d /c "`"$bin`" status --json") -join "`n" | ConvertFrom-Json
   if (-not $status.version) { throw 'status gave no version' }
   Write-Output "core $($status.version)"
@@ -62,7 +72,13 @@ $env:MEMEV_GUIDE_PORT = [string](Get-FreePort)
 $rc = $LASTEXITCODE
 & cmd.exe /d /c "`"$bin`" stop" 2>$null | Out-Null
 if ($rc -ne 0) { throw "the first-launch proof exited $rc" }
-& git -C (Join-Path $t 'proof-notes') remote get-url origin 2>$null | Out-Null
+# the bundled git reads the notes: they are a repository with a commit, and no remote was recorded
+$pgit = Join-Path $t 'proof-notes\.git'
+if (-not (Test-Path $pgit)) { throw 'the first launch made no git repository in its notes folder' }
+$head = (& $git --git-dir $pgit rev-parse --verify HEAD 2>&1) -join ' '
+if ($LASTEXITCODE -ne 0) { throw "the first launch made no commit with the bundled git: $head" }
+Write-Output "notes commit $head"
+& $git --git-dir $pgit remote get-url origin 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'a remote was recorded without a tick' }
 
 # Uninstall: nothing from the install keeps running, and the notes stay.
@@ -75,6 +91,7 @@ Start-Sleep -Seconds 3
 $left = @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($dir, [System.StringComparison]::OrdinalIgnoreCase) })
 if ($left.Count -gt 0) { $left | Format-Table Id, Path | Out-String | Write-Output; throw 'a process from the install is still running after uninstall' }
 if (Test-Path $exe) { throw 'the window is still installed after uninstall' }
+if (Test-Path (Join-Path $dir 'resources\git')) { throw 'the bundled git is still there after uninstall' }
 if (Test-Path $shortcut) { throw 'the Start menu entry is still there after uninstall' }
 if (Test-Path $key) { throw 'the uninstall entry is still there after uninstall' }
 if (-not (Test-Path $notes)) { throw 'the notes folder was not kept' }

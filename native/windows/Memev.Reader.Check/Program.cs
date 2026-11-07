@@ -71,9 +71,11 @@ static class Program
     string[] bad = { "https://127.0.0.1/healthz", "http://10.1.2.3/healthz", "http://192.0.2.1/healthz", "http://127.0.0.1:7787@192.0.2.1/",
       "http://localhost.example/healthz", "http://127.0.0.1:0/healthz", "http://127.0.0.1:99999/healthz", "file:///tmp/x", "" };
     foreach (string u in bad) Expect(!Loopback.TryParse(u, out _, out _, out _), u);
+    // the refusal is timed after a warm-up call, so a cold start does not count; a connect attempt would take the whole 500 ms
+    Http.Get("http://192.0.2.2/healthz", 500);
     var sw = Stopwatch.StartNew();
     Expect(Http.Get("http://192.0.2.1/healthz", 500) == null, "reject public-looking test address");
-    Expect(sw.ElapsedMilliseconds < 100, "reject did not wait on a connect");
+    Expect(sw.ElapsedMilliseconds < 400, $"reject did not wait on a connect ({sw.ElapsedMilliseconds} ms)");
   }
 
   static TcpListener Serve(out Thread server)
