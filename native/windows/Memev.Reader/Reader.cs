@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -233,9 +234,14 @@ public static class Core
     string ext = Path.GetExtension(bin).ToLowerInvariant();
     if (Windows && (ext == ".cmd" || ext == ".bat"))
     {
-      // a batch file runs through cmd.exe; the arguments are fixed words of this program, never text from the core
+      // A batch file runs through cmd.exe, which reads its line again. Every argument is quoted, so & | < > ( ) and spaces stay
+      // text; one that holds a quote, % or ! (which cmd.exe expands even inside quotes) or a control character is refused.
+      // The first launch passes typed text here (a notes folder, a remote, a join code), so this is the line a command could
+      // otherwise be smuggled through.
+      foreach (string a in args.Prepend(bin))
+        if (a.Any((c) => c == '"' || c == '%' || c == '!' || c < ' ')) return new Result(true, 126, "");
       psi.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-      psi.Arguments = $"/d /s /c \"\"{bin}\" {string.Join(' ', args)}\"";
+      psi.Arguments = $"/d /s /c \"{string.Join(' ', args.Prepend(bin).Select((a) => $"\"{a}\""))}\"";
     }
     else
     {
