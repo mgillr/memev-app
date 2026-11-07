@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "ui.h"
 #include "read.h"
+#include "guide.h"
 
 #include <adwaita.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef struct {
   const char *id;
@@ -40,6 +42,20 @@ typedef struct {
   GtkWidget *later_body;
   GtkWidget *stack;
   GtkWidget *primary;
+  GtkWidget *back;
+  GtkWidget *guide_text;
+  GtkWidget *guide_entry;
+  GtkWidget *guide_choices;
+  GtkWidget *choice_this;
+  GtkWidget *choice_other;
+  GtkWidget *guide_apps;
+  GtkWidget *guide_backup;
+  GtkWidget *guide_detail;
+  int in_guide;
+  int guide_step;
+  int app_count;
+  GuidePlan plan;
+  GuideApp apps[GUIDE_APPS_MAX];
   MemevGlance glance;
   int selected;
   int attention_rows;
@@ -246,11 +262,6 @@ static void on_refresh(GSimpleAction *action, GVariant *param, gpointer ud) {
   reload_glance(ud);
 }
 
-static void on_refresh_clicked(GtkButton *button, gpointer ud) {
-  (void)button;
-  reload_glance(ud);
-}
-
 static gboolean poll_glance(gpointer ud) {
   reload_glance(ud);
   return G_SOURCE_CONTINUE;
@@ -294,6 +305,14 @@ static int list_len(GtkWidget *list) {
 
 static gboolean report_and_quit(gpointer ud) {
   App *a = ud;
+  if (a->in_guide) {
+    const char *title = gtk_label_get_text(GTK_LABEL(a->page_title));
+    const char *button = gtk_button_get_label(GTK_BUTTON(a->primary));
+    printf("guide=%s\n", title ? title : "");
+    printf("primary_label=%s\n", button ? button : "");
+    printf("primary=%d\n", count_class(a->window, "primary"));
+    exit(title && button && strcmp(title, "Is this your first computer?") == 0 && strcmp(button, "Continue") == 0 && count_class(a->window, "primary") == 1 ? 0 : 1);
+  }
   int w = 0, h = 0;
   gtk_widget_get_size_request(a->window, &w, &h);
   int sw = 0, sh = 0;
@@ -329,6 +348,227 @@ static gboolean report_and_quit(gpointer ud) {
     rc = 1;
   exit(rc);
   return G_SOURCE_REMOVE;
+}
+
+static int want_guide(void) {
+  const char *flag = getenv("MEMEV_GUIDE");
+  if (flag && strcmp(flag, "off") == 0) return 0;
+  if (flag && strcmp(flag, "1") == 0) return 1;
+  const char *cfg = getenv("MEMEV_CONFIG_DIR");
+  char path[512];
+  if (cfg && cfg[0]) snprintf(path, sizeof path, "%s/desktop-first-launch-done", cfg);
+  else {
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) return 1;
+    snprintf(path, sizeof path, "%s/.config/memev/desktop-first-launch-done", home);
+  }
+  return access(path, F_OK) != 0;
+}
+
+static void write_guide_marker(void) {
+  const char *cfg = getenv("MEMEV_CONFIG_DIR");
+  char path[512];
+  if (cfg && cfg[0]) snprintf(path, sizeof path, "%s/desktop-first-launch-done", cfg);
+  else {
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) return;
+    snprintf(path, sizeof path, "%s/.config/memev/desktop-first-launch-done", home);
+  }
+  char dir[512];
+  snprintf(dir, sizeof dir, "%s", path);
+  char *slash = strrchr(dir, '/');
+  if (slash) *slash = 0;
+  g_mkdir_with_parents(dir, 0700);
+  g_file_set_contents(path, "ok\n", -1, NULL);
+}
+
+static void guide_pick(GtkButton *button, gpointer ud) {
+  App *a = ud;
+  a->plan.first_computer = button == GTK_BUTTON(a->choice_this) ? 1 : 0;
+  if (a->plan.first_computer == 1) {
+    gtk_widget_add_css_class(a->choice_this, "selected");
+    gtk_widget_remove_css_class(a->choice_other, "selected");
+  } else {
+    gtk_widget_add_css_class(a->choice_other, "selected");
+    gtk_widget_remove_css_class(a->choice_this, "selected");
+  }
+}
+
+static void guide_load_apps(App *a) {
+  if (a->app_count > 0) return;
+  char bin[4096];
+  if (memev_resolve_bin(bin, sizeof bin) != 0) return;
+  char out[8192];
+  char *argv[] = {bin, "clients", NULL};
+  int code = 0;
+  if (memev_capture(bin, argv, out, sizeof out, 10000, &code) != 0 || code != 0) return;
+  a->app_count = guide_parse_clients(out, a->apps, GUIDE_APPS_MAX);
+  GtkWidget *child;
+  while ((child = gtk_widget_get_first_child(a->guide_apps)) != NULL)
+    gtk_box_remove(GTK_BOX(a->guide_apps), child);
+  if (a->app_count == 0) {
+    gtk_box_append(GTK_BOX(a->guide_apps), gtk_label_new("The client list did not parse."));
+    return;
+  }
+  for (int i = 0; i < a->app_count; i++) {
+    char line[180];
+    snprintf(line, sizeof line, "%s: %s", a->apps[i].name, a->apps[i].state);
+    GtkWidget *check = gtk_check_button_new_with_label(line);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(check), FALSE);
+    gtk_widget_set_sensitive(check, a->apps[i].selectable);
+    g_object_set_data(G_OBJECT(check), "app-index", GINT_TO_POINTER(i));
+    gtk_box_append(GTK_BOX(a->guide_apps), check);
+  }
+}
+
+static void guide_show(App *a, int step) {
+  a->in_guide = 1;
+  a->guide_step = step;
+  gtk_widget_set_visible(a->back, step > 0);
+  gtk_widget_set_visible(a->guide_entry, FALSE);
+  gtk_widget_set_visible(a->guide_choices, FALSE);
+  gtk_widget_set_visible(a->guide_apps, FALSE);
+  gtk_widget_set_visible(a->guide_backup, FALSE);
+  gtk_label_set_text(GTK_LABEL(a->guide_detail), "");
+  gtk_stack_set_visible_child_name(GTK_STACK(a->stack), "guide");
+  gtk_button_set_label(GTK_BUTTON(a->primary), "Continue");
+  if (step == 0) {
+    gtk_label_set_text(GTK_LABEL(a->page_title), "Is this your first computer?");
+    gtk_label_set_text(GTK_LABEL(a->guide_text), "Nothing is created, connected or sent on this step.");
+    gtk_widget_set_visible(a->guide_choices, TRUE);
+  } else if (step == 1 && a->plan.first_computer == 0) {
+    gtk_label_set_text(GTK_LABEL(a->page_title), "Join another computer");
+    gtk_label_set_text(GTK_LABEL(a->guide_text), "The join runs only when you press the button. It contacts the other computer.");
+    gtk_widget_set_visible(a->guide_entry, TRUE);
+    gtk_button_set_label(GTK_BUTTON(a->primary), "Join the other computer");
+  } else if (step == 1) {
+    gtk_label_set_text(GTK_LABEL(a->page_title), "Where should the notes live?");
+    gtk_label_set_text(GTK_LABEL(a->guide_text), "Type a full path. The folder is created only when you continue, and only on this computer.");
+    gtk_widget_set_visible(a->guide_entry, TRUE);
+  } else if (step == 2) {
+    gtk_label_set_text(GTK_LABEL(a->page_title), "Which apps should Memev know?");
+    gtk_label_set_text(GTK_LABEL(a->guide_text), "The list is the core's own client list. A tick is remembered here. Nothing is connected: that list has no id, and this window does not keep its own list.");
+    guide_load_apps(a);
+    gtk_widget_set_visible(a->guide_apps, TRUE);
+  } else if (step == 3) {
+    gtk_label_set_text(GTK_LABEL(a->page_title), "Back up to your own git remote?");
+    gtk_label_set_text(GTK_LABEL(a->guide_text), "Leave this blank to skip it. Recording a remote does not upload the notes, and nothing is recorded unless you tick the line.");
+    gtk_widget_set_visible(a->guide_entry, TRUE);
+    gtk_widget_set_visible(a->guide_backup, TRUE);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(a->guide_backup), FALSE);
+  } else {
+    gtk_label_set_text(GTK_LABEL(a->page_title), "Check that a note can be saved");
+    gtk_label_set_text(GTK_LABEL(a->guide_text), "This uses the core on this computer. It does not use sample figures.");
+    gtk_button_set_label(GTK_BUTTON(a->primary), "Check the notes");
+  }
+}
+
+static void guide_finish(App *a) {
+  a->in_guide = 0;
+  gtk_widget_set_visible(a->back, FALSE);
+  gtk_button_set_label(GTK_BUTTON(a->primary), "Refresh");
+  write_guide_marker();
+  reload_glance(a);
+  show_page(a, 0);
+}
+
+static void guide_collect(App *a) {
+  const char *text = gtk_editable_get_text(GTK_EDITABLE(a->guide_entry));
+  if (a->guide_step == 1 && a->plan.first_computer == 0) {
+    snprintf(a->plan.join_code, sizeof a->plan.join_code, "%s", text ? text : "");
+    a->plan.confirm_join = true;
+  } else if (a->guide_step == 1) {
+    snprintf(a->plan.notes_dir, sizeof a->plan.notes_dir, "%s", text ? text : "");
+  } else if (a->guide_step == 2) {
+    a->plan.selected_count = 0;
+    for (GtkWidget *c = gtk_widget_get_first_child(a->guide_apps); c; c = gtk_widget_get_next_sibling(c)) {
+      if (!GTK_IS_CHECK_BUTTON(c) || !gtk_check_button_get_active(GTK_CHECK_BUTTON(c))) continue;
+      int index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(c), "app-index"));
+      if (index < 0 || index >= a->app_count || a->plan.selected_count >= GUIDE_APPS_MAX) continue;
+      snprintf(a->plan.selected[a->plan.selected_count], sizeof a->plan.selected[0], "%s", a->apps[index].name);
+      a->plan.selected_count++;
+    }
+    a->plan.confirm_apps = a->plan.selected_count > 0;
+  } else if (a->guide_step == 3) {
+    snprintf(a->plan.backup_url, sizeof a->plan.backup_url, "%s", text ? text : "");
+    a->plan.confirm_backup = gtk_check_button_get_active(GTK_CHECK_BUTTON(a->guide_backup));
+  }
+}
+
+static void guide_next(App *a) {
+  if (a->guide_step == 0) {
+    if (a->plan.first_computer < 0) {
+      gtk_label_set_text(GTK_LABEL(a->guide_detail), "Choose this computer or another one.");
+      return;
+    }
+    gtk_editable_set_text(GTK_EDITABLE(a->guide_entry), "");
+    guide_show(a, 1);
+    return;
+  }
+  guide_collect(a);
+  if (a->guide_step == 1 && a->plan.first_computer == 0) {
+  char bin[4096];
+  char detail[400];
+  if (memev_resolve_bin(bin, sizeof bin) != 0 || guide_apply(&a->plan, bin, detail, sizeof detail) != 0) {
+    gtk_label_set_text(GTK_LABEL(a->guide_detail), detail[0] ? detail : "Join did not run.");
+      a->plan.confirm_join = false;
+      return;
+    }
+    guide_finish(a);
+    return;
+  }
+  if (a->guide_step == 1) {
+    char why[256];
+    GuideCmd cmds[GUIDE_CMD_MAX];
+    if (guide_build(&a->plan, cmds, GUIDE_CMD_MAX, why, sizeof why) < 0) {
+      gtk_label_set_text(GTK_LABEL(a->guide_detail), why[0] ? why : "That folder cannot be used.");
+      return;
+    }
+    guide_show(a, 2);
+    return;
+  }
+  if (a->guide_step == 2) {
+    char why[256];
+    GuideCmd cmds[GUIDE_CMD_MAX];
+    guide_build(&a->plan, cmds, GUIDE_CMD_MAX, why, sizeof why);
+    if (why[0]) gtk_label_set_text(GTK_LABEL(a->guide_detail), why);
+    gtk_editable_set_text(GTK_EDITABLE(a->guide_entry), "");
+    guide_show(a, 3);
+    return;
+  }
+  if (a->guide_step == 3) {
+    char why[256];
+    GuideCmd cmds[GUIDE_CMD_MAX];
+    if (guide_build(&a->plan, cmds, GUIDE_CMD_MAX, why, sizeof why) < 0) {
+      gtk_label_set_text(GTK_LABEL(a->guide_detail), why[0] ? why : "That remote cannot be recorded.");
+      return;
+    }
+    guide_show(a, 4);
+    return;
+  }
+  char bin[4096];
+  char detail[400];
+  if (memev_resolve_bin(bin, sizeof bin) != 0 || guide_apply(&a->plan, bin, detail, sizeof detail) != 0) {
+    gtk_label_set_text(GTK_LABEL(a->guide_detail), detail[0] ? detail : "The check did not pass.");
+    return;
+  }
+  if (detail[0]) gtk_label_set_text(GTK_LABEL(a->guide_detail), detail);
+  guide_finish(a);
+}
+
+static void on_back(GtkButton *button, gpointer ud) {
+  (void)button;
+  App *a = ud;
+  if (!a->in_guide || a->guide_step <= 0) return;
+  if (a->guide_step == 1) a->plan.confirm_join = false;
+  guide_show(a, a->guide_step - 1);
+}
+
+static void on_primary(GtkButton *button, gpointer ud) {
+  (void)button;
+  App *a = ud;
+  if (a->in_guide) guide_next(a);
+  else reload_glance(a);
 }
 
 static void on_help(GtkButton *button, gpointer ud) {
@@ -416,7 +656,12 @@ static void on_activate(GtkApplication *application, gpointer ud) {
   gtk_widget_set_hexpand(a->page_title, TRUE);
   a->primary = gtk_button_new_with_label("Refresh");
   gtk_widget_add_css_class(a->primary, "primary");
-  g_signal_connect(a->primary, "clicked", G_CALLBACK(on_refresh_clicked), a);
+  g_signal_connect(a->primary, "clicked", G_CALLBACK(on_primary), a);
+  a->back = gtk_button_new_with_label("Back");
+  gtk_widget_add_css_class(a->back, "nav");
+  gtk_widget_set_visible(a->back, FALSE);
+  g_signal_connect(a->back, "clicked", G_CALLBACK(on_back), a);
+  gtk_box_append(GTK_BOX(header), a->back);
   gtk_box_append(GTK_BOX(header), a->page_title);
   gtk_box_append(GTK_BOX(header), a->primary);
   gtk_box_append(GTK_BOX(page), header);
@@ -465,6 +710,41 @@ static void on_activate(GtkApplication *application, gpointer ud) {
   gtk_label_set_max_width_chars(GTK_LABEL(a->later_body), 64);
   gtk_box_append(GTK_BOX(later), a->later_body);
 
+  GtkWidget *guide = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+  a->guide_text = gtk_label_new("");
+  gtk_widget_add_css_class(a->guide_text, "sub");
+  gtk_label_set_xalign(GTK_LABEL(a->guide_text), 0);
+  gtk_label_set_wrap(GTK_LABEL(a->guide_text), TRUE);
+  gtk_label_set_max_width_chars(GTK_LABEL(a->guide_text), 64);
+  a->guide_choices = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  a->choice_this = gtk_button_new_with_label("This computer");
+  a->choice_other = gtk_button_new_with_label("Another computer");
+  gtk_widget_add_css_class(a->choice_this, "nav");
+  gtk_widget_add_css_class(a->choice_other, "nav");
+  align_button_label(a->choice_this);
+  align_button_label(a->choice_other);
+  g_signal_connect(a->choice_this, "clicked", G_CALLBACK(guide_pick), a);
+  g_signal_connect(a->choice_other, "clicked", G_CALLBACK(guide_pick), a);
+  gtk_box_append(GTK_BOX(a->guide_choices), a->choice_this);
+  gtk_box_append(GTK_BOX(a->guide_choices), a->choice_other);
+  a->guide_entry = gtk_entry_new();
+  gtk_widget_set_visible(a->guide_entry, FALSE);
+  a->guide_apps = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+  gtk_widget_set_visible(a->guide_apps, FALSE);
+  a->guide_backup = gtk_check_button_new_with_label("Record this remote");
+  gtk_widget_set_visible(a->guide_backup, FALSE);
+  a->guide_detail = gtk_label_new("");
+  gtk_label_set_xalign(GTK_LABEL(a->guide_detail), 0);
+  gtk_label_set_wrap(GTK_LABEL(a->guide_detail), TRUE);
+  gtk_label_set_max_width_chars(GTK_LABEL(a->guide_detail), 64);
+  gtk_box_append(GTK_BOX(guide), a->guide_text);
+  gtk_box_append(GTK_BOX(guide), a->guide_choices);
+  gtk_box_append(GTK_BOX(guide), a->guide_entry);
+  gtk_box_append(GTK_BOX(guide), a->guide_apps);
+  gtk_box_append(GTK_BOX(guide), a->guide_backup);
+  gtk_box_append(GTK_BOX(guide), a->guide_detail);
+
+  gtk_stack_add_named(GTK_STACK(a->stack), guide, "guide");
   gtk_stack_add_named(GTK_STACK(a->stack), overview, "overview");
   gtk_stack_add_named(GTK_STACK(a->stack), health, "health");
   gtk_stack_add_named(GTK_STACK(a->stack), later, "later");
@@ -487,7 +767,12 @@ static void on_activate(GtkApplication *application, gpointer ud) {
   gtk_application_set_accels_for_action(application, "win.refresh", accels);
 
   reload_glance(a);
-  show_page(a, 0);
+  guide_plan_clear(&a->plan);
+  if (want_guide() && a->glance.have_binary) {
+    guide_show(a, 0);
+  } else {
+    show_page(a, 0);
+  }
   gtk_window_present(GTK_WINDOW(a->window));
 
   if (a->self_check) {

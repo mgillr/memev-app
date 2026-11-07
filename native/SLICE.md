@@ -20,9 +20,11 @@ A window that is a web page is not used as a stand-in.
 
 It reads a local `memev` process (`status --json`, `doctor --json`, `card --json`) and, unless `MEMEV_HEALTH_URL=off`, `GET /healthz` on loopback only. Names other than `127.0.0.1`, `localhost` and `[::1]` are refused before a socket is opened. `localhost` is connected as `127.0.0.1` with no name lookup.
 
-The window shows the health sentence under the wordmark, the seven menu entries from the rev2 decisions note, Help and support at the foot, and the overview sentence. Health lists each returned check as its title and status word. Refresh is the one filled button. The minimum size is 1024 by 700. The sidebar is 240 wide. Colours and the amber section mark follow the visual system, with the later line and rule values from the 6 Nov decisions note. The theme follows the computer unless `MEMEV_THEME` is `dark` or `light`.
+The window shows the health sentence under the wordmark, the seven menu entries from the rev2 decisions note, Help and support at the foot, and the overview sentence. Health lists each returned check as its title and status word. One button is filled: Refresh on the overview, Continue in the first launch. The minimum size is 1024 by 700. The sidebar is 240 wide. Colours and the amber section mark follow the visual system, with the later line and rule values from the 6 Nov decisions note. The theme follows the computer unless `MEMEV_THEME` is `dark` or `light`.
 
-The other menu entries say they are not in this slice. They show no sample figures. Charts are not drawn. The app writes nothing and sends nothing.
+Before the overview, a first launch asks four things from the revised plan of 7 Nov 2026: this computer or another, where the notes live, which apps the core lists, and whether to record the person's own git remote. Continue on the last step saves one note with the core and reads it back. Nothing is connected, and no remote is recorded, unless that step says so and the person confirms. See `CLI-CONTRACT.md`. `MEMEV_GUIDE=off` skips it.
+
+The other menu entries say they are not in this slice. They show no sample figures. Charts are not drawn. The window writes only the one note the first launch saves, through the core, and sends nothing on its own.
 
 Fields that are not the version, the note count, the project name, the north star, or a check's id, title and status are not shown. A project name that contains a slash is not shown.
 

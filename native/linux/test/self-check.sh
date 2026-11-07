@@ -8,7 +8,7 @@ fix=$root/test/fixtures/memev
 ver=$("$bin" --version)
 printf '%s\n' "$ver" | grep -F 'memev-desktop 0.0.1-slice1' >/dev/null
 
-out=$(NO_AT_BRIDGE=1 MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_SELF_CHECK=1 \
+out=$(NO_AT_BRIDGE=1 MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=off MEMEV_SELF_CHECK=1 \
   xvfb-run -a "$bin")
 printf '%s\n' "$out"
 printf '%s\n' "$out" | grep -F 'overview=Memev 0.1.0 is running for demo. 3 notes are in the index. 1 check to look at.' >/dev/null
@@ -45,7 +45,7 @@ if grep -a -F "$needle" "$bin" >/dev/null || grep -a -F "$other" "$bin" >/dev/nu
 fi
 
 # A live process with health checks off must not hold a non-loopback TCP socket.
-NO_AT_BRIDGE=1 MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark \
+NO_AT_BRIDGE=1 MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=off \
   xvfb-run -a sh -c '
     "$1" >/tmp/memev-desktop-out.txt 2>/tmp/memev-desktop-err.txt &
     pid=$!
@@ -65,5 +65,12 @@ NO_AT_BRIDGE=1 MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark \
     kill "$pid" || true
     wait "$pid" || true
   ' sh "$bin"
+
+guide=$(NO_AT_BRIDGE=1 MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=1 MEMEV_SELF_CHECK=1 \
+  xvfb-run -a "$bin")
+printf '%s\n' "$guide"
+printf '%s\n' "$guide" | grep -F 'guide=Is this your first computer?' >/dev/null
+printf '%s\n' "$guide" | grep -F 'primary_label=Continue' >/dev/null
+printf '%s\n' "$guide" | grep -F 'primary=1' >/dev/null
 
 echo "self-check passed"
