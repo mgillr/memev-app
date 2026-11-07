@@ -862,3 +862,53 @@ These are not missing core commands. They are places where the design and this r
 - **D-5 The support address.** SU-1. It stays out of this repository until the leak denylist has been checked (05-decisions:151-153).
 - **D-6 Counts that differ between the notes and the code.** 14 pips in the code, 13 in 05-decisions:14 (the code is used here). `line` is #2B3543 dark and #D6DBE3 light in the code, #252E3A and #DDE1E7 in 05-decisions:62 (the code is used). The mockup says 18 known apps (`logic4.js:19`), the inventory 17. The app shows what the core prints. Memory, Search in first run draws two amber buttons, the empty state's "Import" and the page action "Save a memory" (`logic4.js:65-66`, `logic1.js:139`, `logic5.js:179`); the app keeps only the empty state's.
 - **D-7 Buttons with no flow drawn.** Many action buttons only print "Mockup only: ... changes nothing here." (for example "Change the lead", "Write to a bot", "Issue a key", "Give to another bot", "Rename", "Check", "Make lead", "Switch on" for the runner, "Keep", "It helped", "Sign", "Approve", "Restart"). The map gives the command for each. Each still needs its confirmation drawn, per COVERAGE.md:5, before it is built.
+
+## 5. Addendum, 7 Nov 2026: three screens the owner asked for after the map was written
+
+These follow the rev2 visual language of section 1: the section label, lists on `panel`, the one amber button, form sheets with an amber main button, and confirmation sheets with a red main button. The sources are the commands of the trial core at memev `2e58f9400141f82a7909c352afb128db22213e0c` (branch `trial/windows-20261107`). Where that core has no command, the element says so; nothing is a sample figure.
+
+The guided first launch keeps its first steps (this computer or another, the notes folder, the backup remote, the check that a note comes back). After the check it asks three more things, in this order, and each one has a "Skip" button: connect your AI apps (5.1), bring in your chat history (5.2), and choose the lead (5.4). Skipping changes nothing. A computer that joined another computer's memory skips all three, because its memory lives on the other computer.
+
+### 5.1 Bots and agents, Connect tab: the apps Memev found
+
+- Sentence: "<n> of <m> AI apps found on this computer are connected." When none is found: "No AI apps were found on this computer."
+- **BC-8 Section "AI APPS ON THIS COMPUTER"**, a list of every app the core found. Each row: a tick box, the app name, and its state in `sub`.
+  - Found and supported, not connected: ticked, "found · not connected".
+  - Connected: shown ticked and greyed, "connected", with the row's "Disconnect" button (the confirmation sheet "Disconnect <app>?", then `disconnect <id>`).
+  - Disconnected by you earlier: not ticked, "you disconnected it".
+  - Found but not supported, or a supported app whose settings file Memev cannot edit: no tick; the second line is the core's own manual step.
+  - Src: `onboarding --json`. Its items carry `app` (the id), `step` (the name), `status` (`added`, `ready`, `skipped`, `needs-manual`, `unsupported`) and `detail` (the manual step). A found, connectable app is the item whose detail is `memev connect <id>`. This is the only output of the trial core that prints an app id: `clients` prints names only, and there is no `clients --json` or `connect list`. `onboarding --json` is not a pure read: it rewrites `.memev/onboarding.json`, records the milestones and registers the seats of apps that are already connected. It does not start a stopped Memev and connects nothing. The app does not keep a list of its own.
+- **BC-9 Page action "Connect <n> apps"** (amber, enabled while at least one box is ticked). It opens **BC-S3**, a sheet titled "Connect <n> AI apps?". Note: "Memev adds itself to the settings of each app below and keeps a copy of the old settings first. Each app gets its own seat on the message bus. You can disconnect any of them later." Rows: one per ticked app. Main button "Connect" (amber). The sheet is the confirmation.
+  - Act: `connect <id> <id> ...`, the ids of the ticked rows only, never `connect` with no app and never `connect all`. The core's answer is shown, line by line, in the sheet, then the list is read again.
+- **BC-10 Line "Apps not found on this computer"**: the count of the `clients` rows that read "not found". Text only.
+
+### 5.2 Import history
+
+- Setup asks once, after the note check: "Bring in your existing AI chat history?" with "Look at what is there" (amber) and "Skip".
+- The Import sheet (MEM-S2) is built, and opens from Memory, Search, page action "Import", and from the Overview's first-run empty state. Rows:
+  - "AI app history on this computer", "previewed before anything is kept", button "Preview".
+  - "A chat export (.zip)", "from ChatGPT or Claude: their export file", button "Choose". A file picker for `.zip` files.
+  - "Earlier imports", "each can be undone", button "Undo" per import.
+- Preview: `import --ai-history --preview` or `import --export FILE.zip --preview`. The core prints its preview as text; the app shows it in a sheet, "Keep these <n> items?", with main button "Import" (amber). Pressing it runs the same command with `--yes`. The core stops Memev for the moment of a preview or an import and starts it again, so the stopped banner can show for a second.
+- Undo: `import list` gives each import's id; the confirmation sheet "Undo import <id>?" ("Everything that import brought in leaves your memory.", main "Undo import", red) runs `import undo <id>`.
+- A file name that holds `" % ! & | < > ^ ( )` is refused before it reaches the core, as every typed argument is (for example `export (1).zip`); the sheet says so and asks for a copy with a plain name.
+- `import scan --json` is being built on the core's branch `core/history-import`. It is not in the trial core. When it lands, the preview becomes a list of items with ticks.
+
+### 5.3 Bots and agents, a new tab "Background agents"
+
+- Tabs become "Team", "Connect", "Background agents", "Access".
+- Sentence: "<n> background agents are on." or "No background agent is on."
+- **BB-1 Section "BACKGROUND AGENTS"**, a list from `runner status --json` (`seat`, `enabled`, `max_runs_per_day`, `cmd`, `today`). Each row: the seat, "on · <today> of <max> runs today" or "off", and a "Stop" button on a row that is on.
+  - Act, "Stop": the confirmation sheet "Stop the background agents for <seat>?" ("It takes no more turns until you start it again. Work it already did is kept.", main "Stop", red), then `runner off <seat>`.
+- **BB-2 Page action "Add background agents"** (amber). It opens **BB-S1**, a sheet "Add background agents". Fields: "App" (a choice of the apps that are connected, from BC-8), "How many agents" (1 to 20), "Most runs a day" (required, a whole number of 1 or more; the sheet will not start without it). Note: "Each agent takes one unattended turn when the lead posts it a task, until the day's limit." Main button "Start" (amber). The sheet is the confirmation.
+  - Act: `runner on <app> --agents N --max-runs-per-day M`. The core's answer is shown; it can refuse, for example when it knows no headless command for that app.
+- The runner takes turns while `runner watch <app>` runs. The trial core has no service that keeps it running, so the tab says so in one line.
+
+### 5.4 Choose the lead, in setup
+
+- Setup's last question: "Which app should lead?" Rows: the seats from `bus roster --json` (`seats[].seat`, `client`, `state`), one to pick. Main button "Make <seat> the lead" (amber), and "Skip".
+- Act: `bus operator <seat>`, on this computer only, after the person pressed the button.
+
+### 5.5 What the window may run, added to CLI-CONTRACT.md
+
+`onboarding --json`, `runner status --json` and `import list` as reads; `connect <id>...`, `disconnect <id>`, `import --ai-history|--export FILE --preview`, the same with `--yes`, `import undo <id>`, `runner on <app> --agents N --max-runs-per-day M`, `runner off <seat>` and `bus operator <seat>`, each only after its sheet.
