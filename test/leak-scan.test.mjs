@@ -9,16 +9,17 @@ import os from 'node:os';
 import path from 'node:path';
 
 const scan = path.resolve('scripts/leak-scan.mjs');
-function repo(messages, extraFile) {
+function repo(messages, extraFile, origin = 'https://github.com/zorbquux/memev-app.git') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'leak-'));
   const git = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: dir });
   git('init', '-q');
+  if (origin) git('remote', 'add', 'origin', origin);
   fs.writeFileSync(path.join(dir, 'a.txt'), 'x\n');
   git('add', 'a.txt');
   if (extraFile) { fs.mkdirSync(path.dirname(path.join(dir, extraFile)), { recursive: true }); fs.writeFileSync(path.join(dir, extraFile), 'x\n'); git('add', extraFile); }
   for (const m of messages) git('commit', '-q', '--allow-empty', '-m', m);
   const words = path.join(dir, '..', `${path.basename(dir)}.words`);
-  fs.writeFileSync(words, 'zorbquux\n');
+  fs.writeFileSync(words, 'zorbquux\nblorpfrob\n');
   return spawnSync(process.execPath, [scan, '--history'], { encoding: 'utf8', env: { ...process.env, LEAK_ROOT: dir, LEAK_DENYLIST: words } });
 }
 
@@ -27,3 +28,16 @@ test('the owner word in the body of a merge commit is still found', () => assert
 test('the owner word on a first line of another form is still found', () => assert.equal(repo(['Fix the window for zorbquux']).status, 1));
 test('a merge subject with more after the branch is still found', () => assert.equal(repo(['Merge pull request #3 from zorbquux/x and zorbquux']).status, 1));
 test('a tracked file path of the merge-subject form is still found', () => assert.equal(repo(['Add a note'], 'Merge pull request #3 from zorbquux/note.txt').status, 1));
+
+// The owner is the account in the origin remote's GitHub URL for memev-app, and only that account.
+test('the owner passes in each GitHub origin form', () => {
+  for (const o of ['https://github.com/zorbquux/memev-app', 'git@github.com:zorbquux/memev-app.git', 'ssh://git@ssh.github.com:443/zorbquux/memev-app.git'])
+    assert.equal(repo(['Merge pull request #3 from zorbquux/x'], undefined, o).status, 0, o);
+});
+test('another denylisted login in the owner slot is still found', () => assert.equal(repo(['Merge pull request #3 from blorpfrob/x']).status, 1));
+test('with no origin, an origin off GitHub, or another repository, nothing is accepted', () => {
+  assert.equal(repo(['Merge pull request #3 from zorbquux/x'], undefined, null).status, 1);
+  assert.equal(repo(['Merge pull request #3 from zorbquux/x'], undefined, 'https://example.org/zorbquux/memev-app.git').status, 1);
+  assert.equal(repo(['Merge pull request #3 from zorbquux/x'], undefined, 'https://github.com/zorbquux/other-repo.git').status, 1);
+});
+test('the owner in the branch segment is still found', () => assert.equal(repo(['Merge pull request #3 from zorbquux/zorbquux-patch-1']).status, 1));

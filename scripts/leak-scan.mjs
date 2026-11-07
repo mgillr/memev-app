@@ -28,6 +28,16 @@ const OK_HOME = new Set(['you', 'me', 'user', 'username', 'name', 'runner', 'exa
 const REPO_URL = /(?<=^|[\s"'`(<\[])https:\/\/github\.com\/([a-z0-9-]+)\/memev(?=\.git(?![a-z0-9])|[/\s"'`)>]|$)/g;
 const ROOT_HOME = new RegExp(`(^|[\\s"'(])/${'root'}/`);
 const findings = [];
+// The account that owns this repository, read at run time from the origin remote's GitHub URL for memev-app and never written
+// here. It is null when there is no origin, or the origin is not github.com/<owner>/memev-app; then nothing is blanked. The origin
+// is the clone's own config, so it decides only what that clone accepts in its own history; CI checks out from GitHub.
+function repoOwner() {
+  let url = '';
+  try { url = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; }
+  const m = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@(?:ssh\.)?github\.com(?::443)?\/)([A-Za-z0-9-]+)\/memev-app(?:\.git)?\/?$/i.exec(url);
+  return m ? m[1].toLowerCase() : null;
+}
+const OWNER = repoOwner();
 function scanText(where, text, file = '', isCommit = false) {
   if (EXEMPT.some((re) => re.test(file)) || SELF.has(file)) return;
   const lines = text.split('\n');
@@ -41,9 +51,9 @@ function scanText(where, text, file = '', isCommit = false) {
     // GitHub writes a merge commit's first line as "Merge pull request #N from <owner>/<branch>". The owner there is the same
     // public account as in the repository URL, so on the first line of a commit message, in exactly that form, the owner segment
     // is blanked. The same word anywhere else in the message, or in a line of any other form, is still found.
-    const merge = isCommit && i === 0 ? /^(Merge pull request #\d+ from )([A-Za-z0-9-]+)(\/\S+)$/.exec(line) : null;
+    const merge = isCommit && i === 0 && OWNER ? /^(Merge pull request #\d+ from )([A-Za-z0-9-]+)(\/\S+)$/.exec(line) : null;
     const lower = file ? line.toLowerCase().replace(REPO_URL, (m, owner) => (deny.has(h(owner)) ? m.replace(`/${owner}/`, '//') : m))
-      : merge && deny.has(h(merge[2].toLowerCase())) ? `${merge[1]}${merge[3]}`.toLowerCase() : line.toLowerCase();
+      : merge && merge[2].toLowerCase() === OWNER ? `${merge[1]}${merge[3]}`.toLowerCase() : line.toLowerCase();
     const words = new Set();
     for (const w of lower.split(/[^a-z0-9@._+-]+/)) { if (!w) continue; words.add(w); words.add(w.replace(/^[._-]+|[._-]+$/g, '')); for (const p of w.split(/[._@+-]+/)) if (p) words.add(p); }
     for (const w of lower.split(/[^a-z0-9]+/)) if (w) words.add(w);
