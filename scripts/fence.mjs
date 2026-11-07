@@ -12,7 +12,11 @@ const LOGIC = /verify[-_]?licen[cs]e|sign[-_]?licen[cs]e|seat[-_]?policy|engine[
 // Prose counts: a public page can describe the method or state a patent position with no code at all.
 const METHOD = /\bor-?set\b|observed[- ]remove|vector[- ]?clock|causal[- ]?trust|delta[- ]?trust|proof[- ]carrying|adaptive[- ]?verification|\blww[- ]?(map|register|set)\b|\bmerkle\b|\btwo[- ]layer\b/i;
 const FILING = /\bpatents?\b|\bprovisional (application|filing)\b/i;
-const FILING_OK = /^LICENSE$/; // The Apache-2.0 text itself. Nothing else is exempt.
+const FILING_OK = /^LICENSE$/; // The Apache-2.0 text itself. No other whole file is exempt.
+// The SIL Open Font License ships verbatim beside each bundled font, and its disclaimer names the word once. Only that one line,
+// in those licence files, is exempt; any other line in them is still scanned.
+const OFL_FILE = /^native\/macos\/fonts\/OFL-[A-Za-z]+\.txt$/;
+const OFL_LINE = 'OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE';
 const SELF = /^scripts\/(fence|leak-scan)\.mjs$|^scripts\/leak-denylist\.json$|^test\/fence\.test\.mjs$/;
 const files = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
 const findings = [];
@@ -25,7 +29,7 @@ for (const f of files) {
     if (ENGINE.test(line) || E4.test(line)) findings.push(`${f}:${i + 1}: names the engine`);
     if (LOGIC.test(line)) findings.push(`${f}:${i + 1}: licence or seat logic`);
     if (METHOD.test(line)) findings.push(`${f}:${i + 1}: describes the engine's method`);
-    if (FILING.test(line) && !FILING_OK.test(f)) findings.push(`${f}:${i + 1}: patent or filing wording`);
+    if (FILING.test(line) && !FILING_OK.test(f) && !(OFL_FILE.test(f) && line.trimEnd() === OFL_LINE)) findings.push(`${f}:${i + 1}: patent or filing wording`);
   });
 }
 if (findings.length) { console.error(findings.join('\n')); process.exit(1); }
