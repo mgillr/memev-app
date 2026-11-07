@@ -38,7 +38,12 @@ function scanText(where, text, file = '') {
     // character before it is not a letter, a digit, a dot or a hyphen, so gist.github.com and a look-alike host do not count. The
     // same word anywhere else on the line, in another repository's URL, on another host, in a file path or in a commit message is
     // still found.
-    const lower = file ? line.toLowerCase().replace(REPO_URL, (m, owner) => (deny.has(h(owner)) ? m.replace(`/${owner}/`, '//') : m)) : line.toLowerCase();
+    // GitHub writes a merge commit's first line as "Merge pull request #N from <owner>/<branch>". The owner there is the same
+    // public account as in the repository URL, so on the first line of a commit message, in exactly that form, the owner segment
+    // is blanked. The same word anywhere else in the message, or in a line of any other form, is still found.
+    const merge = !file && i === 0 ? /^(Merge pull request #\d+ from )([A-Za-z0-9-]+)(\/\S+)$/.exec(line) : null;
+    const lower = file ? line.toLowerCase().replace(REPO_URL, (m, owner) => (deny.has(h(owner)) ? m.replace(`/${owner}/`, '//') : m))
+      : merge && deny.has(h(merge[2].toLowerCase())) ? `${merge[1]}${merge[3]}`.toLowerCase() : line.toLowerCase();
     const words = new Set();
     for (const w of lower.split(/[^a-z0-9@._+-]+/)) { if (!w) continue; words.add(w); words.add(w.replace(/^[._-]+|[._-]+$/g, '')); for (const p of w.split(/[._@+-]+/)) if (p) words.add(p); }
     for (const w of lower.split(/[^a-z0-9]+/)) if (w) words.add(w);
