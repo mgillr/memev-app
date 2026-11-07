@@ -909,6 +909,28 @@ The guided first launch keeps its first steps (this computer or another, the not
 - Setup's last question: "Which app should lead?" Rows: the seats from `bus roster --json` (`seats[].seat`, `client`, `state`), one to pick. Main button "Make <seat> the lead" (amber), and "Skip".
 - Act: `bus operator <seat>`, on this computer only, after the person pressed the button.
 
+### 5.6 Chats: talk with the lead from your phone
+
+The trial core at `ceb322f853488ee83162a5d6b39169243bb7ace7` carries the chat bridge (`docs/CHAT.md` in the core). This is a screen of its own, with a menu entry "Chats" after "Bots and agents". No tabs; header rule SH-15.
+
+- Title "Chats". Sentence: "<n> of 4 chat channels are on." or "Every chat channel is off. Each one stays off until you turn it on."
+  - Src: `chat status --json`: `channels[]` with `channel` (`telegram`, `whatsapp`, `discord`, `lark`), `on`, `running`, `seat`, `last_in`, `last_out`, `last_refusal`, `error`; for WhatsApp `enabled`, `linked`, `installed`; for Telegram and Discord `set_up`, `bot`, `paired`; for Lark `set_up`, `paired`, `available`.
+- What is this? words: "Chat channel", "Pairing", "Linked device".
+- Each channel is a section with one row: a glyph (ok when paired or linked and running, live when on and waiting, off when off), the state in plain words ("off", "set up, not paired", "paired · running", "linked · running"), the last message in and out, and the core's error when it has one. Buttons on the row are secondary; the page action "Refresh" is the screen's amber button.
+- **CH-1 Section "TELEGRAM"**, "recommended: Telegram's official bot route".
+  - "Set up": the sheet "Set up Telegram" with one field, "Bot token" (hidden as it is typed), and the note "In Telegram, open @BotFather, send /newbot and follow its steps. Paste the token it gives you. Memev checks it with Telegram and keeps it on this computer only." Main "Set up" (amber). Act: `chat telegram setup --json`, with the token passed in the variable `MEMEV_TELEGRAM_TOKEN`, never as an argument.
+  - "Pair": `chat telegram pair --json` gives `link` and `expires`. The sheet "Pair your phone" shows the link as a QR code and as text, with "Copy the link" and the note "Open it on your phone within 10 minutes and press Start. Only that one person is accepted."
+  - "Turn off": the confirmation sheet "Turn off Telegram?" ("Memev forgets the bot token and the paired person. Nobody reaches the lead through Telegram until you set it up again.", main "Turn off", red), then `chat telegram disable --json`.
+- **CH-2 Section "WHATSAPP"**, tag-free, with the core's warning as a notice on `raise`: "This uses an unofficial WhatsApp connection. WhatsApp's terms do not allow it, and WhatsApp could suspend this number. Memev only messages you, in your own chat."
+  - "Turn on": the sheet "Turn on WhatsApp?" with the warning, a tick box "I understand that WhatsApp could suspend this number", and the note "Memev installs the pinned WhatsApp library on this computer. It writes only to your own "Message yourself" chat." The main button "Turn on" (amber) stays disabled until the box is ticked. Act: `chat whatsapp enable --accept-risk --json`.
+  - "Link": the sheet "Link WhatsApp" runs `chat whatsapp link --json`. Each line it prints with a `qr` is drawn as a QR code (the code changes every few seconds, and the sheet shows the newest); a line with `pairing_code` is shown as text. The note: "On your phone: WhatsApp > Settings > Linked devices > Link a device, then scan this." An optional field "Or link with your phone number" runs it with `--phone <number>` for an 8-character code. The sheet closes on `linked`; Cancel stops the command.
+  - "Turn off": the confirmation sheet "Turn off WhatsApp?" ("Memev logs this computer out of WhatsApp and removes everything it kept here.", main "Turn off", red), then `chat whatsapp disable --json`.
+- **CH-3 Section "Z.AI (DISCORD OR LARK)"**: two rows, Discord and Lark. They share one seat, so only one is on at a time; the core refuses the second.
+  - Discord, "Set up": the sheet "Set up the Discord route" with "Bot token" (hidden), and the ids "Server id", "Channel id", "z.ai bot user id" and "Your user id" (optional). Main "Set up" (amber). Act: `chat discord setup --json` with the token in `MEMEV_DISCORD_TOKEN`, then `chat discord pair --guild G --channel C --zai Z [--person P] --json`. Each id is a long number; the sheet refuses anything else before it runs.
+  - Lark: its state only. The core stores Lark settings, but its connection is not built yet (`available: false`), so the row says so and offers no set-up.
+  - "Turn off" on the row that is on: the confirmation sheet "Turn off the <Discord|Lark> route?" ("z.ai no longer reaches your lead through it, and its settings on this computer are removed.", main "Turn off", red), then `chat discord|lark disable --json`.
+- Every message from a phone reaches the lead as data to read, never as a command; the screen says so in one line under the sections.
+
 ### 5.5 What the window may run, added to CLI-CONTRACT.md
 
-`onboarding --json`, `runner status --json` and `import list` as reads; `connect <id>...`, `disconnect <id>`, `import --ai-history|--export FILE --preview`, the same with `--yes`, `import undo <id>`, `runner on <app> --agents N --max-runs-per-day M`, `runner off <seat>` and `bus operator <seat>`, each only after its sheet.
+`onboarding --json`, `runner status --json`, `import list` and `chat status --json` as reads; `connect <id>...`, `disconnect <id>`, `import --ai-history|--export FILE --preview`, the same with `--yes`, `import undo <id>`, `runner on <app> --agents N --max-runs-per-day M`, `runner off <seat>`, `bus operator <seat>`, and the `chat` commands of 5.6, each only after its sheet.

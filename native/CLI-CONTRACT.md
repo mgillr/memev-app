@@ -23,6 +23,8 @@ The command is `MEMEV_BIN`, or `memev` on `PATH`. The window passes arguments in
 | Undo an import, after its sheet | `import undo ID` | An id `import list` printed |
 | Background agents, after their sheet | `runner on APP --agents N --max-runs-per-day M`, `runner off SEAT` | N from 1 to 20; the daily limit is required, a whole number of 1 or more |
 | Choose the lead, in setup, after its sheet | `bus operator SEAT` | A seat `bus roster --json` printed |
+| The Chats screen | `chat status --json` | Read |
+| Chats, after their sheets | `chat telegram setup --json`, `chat telegram pair --json`, `chat telegram disable --json`, `chat whatsapp enable --accept-risk --json`, `chat whatsapp link [--phone N] --json`, `chat whatsapp disable --json`, `chat discord setup --json`, `chat discord pair --guild G --channel C --zai Z [--person P] --json`, `chat discord disable --json`, `chat lark disable --json` | A token goes in `MEMEV_TELEGRAM_TOKEN` or `MEMEV_DISCORD_TOKEN` for that run, never as an argument. WhatsApp is turned on only after the person ticks the risk line. Discord ids are long numbers |
 
 The window never runs `connect` with no app, never runs `connect` with a guessed id, never runs `push`, `github setup`, or `cloud` itself. On Windows the ids come from `onboarding --json` (above); the macOS window does not run `connect` yet. Pushing to a recorded remote is the core's own sync, described above.
 
