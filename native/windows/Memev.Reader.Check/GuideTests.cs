@@ -131,8 +131,11 @@ static class GuideTests
       expect(r.Done && r.ExitCode == 0 && r.Output.Contains(@"[C:\My Notes\x y] [two]"), $"an argument with spaces stays one argument ({r.Output.Trim()})");
       foreach (string bad in new[] { "%PATH%", "say \"hi\"", "a!b!", "a & echo INJECTED", "a | x", "a > f", "a < f", "a^b", "C:\\Program Files (x86)" })
         expect(Core.Capture(bin, new[] { bad }, 5000).ExitCode == 126, $"refused before cmd.exe: {bad}");
-      r = Core.Capture(bin, new[] { @"C:\x\", "next" }, 5000);
-      expect(r.Done && r.ExitCode == 0 && r.Output.Contains(@"[C:\x\] [next]"), $"a trailing backslash does not swallow the closing quote ({r.Output.Trim()})");
+      // npm's memev.cmd hands %* to node, which splits its line by the C runtime's rules; read the arguments the way node does
+      string viaNode = Path.Combine(dir, "argv.cmd");
+      File.WriteAllText(viaNode, "@node -e \"console.log(JSON.stringify(process.argv.slice(1)))\" %*\r\n");
+      r = Core.Capture(viaNode, new[] { @"C:\x\", "next" }, 15000);
+      expect(r.Done && r.ExitCode == 0 && r.Output.Trim() == "[\"C:\\\\x\\\\\",\"next\"]", $"a trailing backslash does not swallow the closing quote, as node reads it ({r.Output.Trim()})");
       // a core installed under a folder whose name holds ( ) & still runs: only typed arguments are refused
       string odd = Path.Combine(tmp, "Program Files (x86) & co");
       Directory.CreateDirectory(odd);
