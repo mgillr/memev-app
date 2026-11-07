@@ -119,6 +119,13 @@ public static class Guide
     return cmds;
   }
 
+  // init and join end with a checklist; when one fails, the lines marked as failed (\u2717) say why, not the last lines
+  static string Failed(string s)
+  {
+    var bad = s.Split('\n').Where((l) => l.TrimStart().StartsWith("\u2717", StringComparison.Ordinal)).Select((l) => l.Trim()).ToArray();
+    return bad.Length > 0 ? string.Join("\n", bad) : s;
+  }
+
   // A failed command's last output, with a line that names a token cut there, so its value is never shown.
   static string Scrub(string s)
   {
@@ -141,7 +148,7 @@ public static class Guide
       var r = Core.Capture(bin, args, limit, null, true);
       if (!r.Done) { detail = $"The command {args[0]} took longer than {limit / 1000} seconds, so it was stopped. Try again; if it happens twice, open Health."; return false; }
       if (r.Done && r.ExitCode == 126) { detail = "That folder, address or code holds a character this window will not pass to the core: \" % ! & | < > ^ ( ). Choose one without it."; return false; }
-      if (!r.Done || r.ExitCode != 0) { detail = $"The command {args[0]} stopped. {Scrub(r.Output)}".TrimEnd(); return false; }
+      if (!r.Done || r.ExitCode != 0) { detail = $"The command {args[0]} stopped. {Scrub(Failed(r.Output))}".TrimEnd(); return false; }
       if (args[0] == "recall" && !r.Output.Contains(plan.Phrase, StringComparison.Ordinal)) { detail = "Recall did not return the note just saved."; return false; }
     }
     detail = why;
