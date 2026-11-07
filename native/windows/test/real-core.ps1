@@ -23,3 +23,5 @@ try {
   & cmd.exe /d /c "`"$bin`" stop" 2>$null | Out-Null
 }
 Write-Output 'real-core proof passed'
+# the last native command here is a check meant to fail (no remote), and its code would otherwise become the script's
+exit 0
