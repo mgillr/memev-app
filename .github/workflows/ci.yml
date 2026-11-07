@@ -33,3 +33,13 @@ jobs:
           git -C /tmp/memev-core checkout -q FETCH_HEAD
       - name: Prove the first launch against that core
         run: make -C native/linux real-core
+  native-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test the macOS window
+        run: make -C native/macos test
