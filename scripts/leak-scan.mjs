@@ -38,6 +38,10 @@ function repoOwner() {
   return m ? m[1].toLowerCase() : null;
 }
 const OWNER = repoOwner();
+// Commit message lines already on main that can't be changed, because history is never rewritten: the full commit sha and the
+// 1-based line to skip. Only that line is skipped; the rest of the message is still scanned. Add an entry only for a commit on
+// main, never to let a new commit through.
+const ALLOW_COMMIT_LINE = new Map([['9f053b42d33ac4c05e4836b85d9bec178f33af0e', 3]]); // the merge body of PR 6 named two seats
 function scanText(where, text, file = '', isCommit = false) {
   if (EXEMPT.some((re) => re.test(file)) || SELF.has(file)) return;
   const lines = text.split('\n');
@@ -76,8 +80,9 @@ for (const f of files) {
 if (process.argv.includes('--history')) {
   const log = execFileSync('git', ['log', '--format=%H%x00%B%x00'], { cwd: root, encoding: 'utf8' }).split('\0');
   for (let i = 0; i + 1 < log.length; i += 2) {
-    const sha = log[i].trim();
-    scanText(`commit ${sha.slice(0, 10)}`, log[i + 1], '', true);
+    const sha = log[i].trim(); const lines = log[i + 1].split('\n'); const skip = ALLOW_COMMIT_LINE.get(sha);
+    if (skip) lines[skip - 1] = '';
+    scanText(`commit ${sha.slice(0, 10)}`, lines.join('\n'), '', true);
   }
 }
 if (findings.length) { console.error(`leak scan: ${findings.length} finding(s)`); for (const f of findings) console.error(`  ${f}`); process.exit(1); }

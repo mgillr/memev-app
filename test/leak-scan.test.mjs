@@ -41,3 +41,12 @@ test('with no origin, an origin off GitHub, or another repository, nothing is ac
   assert.equal(repo(['Merge pull request #3 from zorbquux/x'], undefined, 'https://github.com/zorbquux/other-repo.git').status, 1);
 });
 test('the owner in the branch segment is still found', () => assert.equal(repo(['Merge pull request #3 from zorbquux/zorbquux-patch-1']).status, 1));
+
+// A fixed line on main is skipped only for its own commit and its own line number.
+test('the allow list skips only its own commit and line', () => {
+  const src = fs.readFileSync(scan, 'utf8');
+  const m = /ALLOW_COMMIT_LINE = new Map\(\[\['([0-9a-f]{40})', (\d+)\]/.exec(src);
+  assert.ok(m, 'the allow list has an entry');
+  // a commit with the same text but another sha is still found
+  assert.equal(repo(['Merge pull request #3 from zorbquux/x\n\nzorbquux was here']).status, 1);
+});
