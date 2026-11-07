@@ -62,13 +62,12 @@ curl --proto '=https' --tlsv1.2 -fsSL "$gurl" -o "$work/git.tgz"
 [ "$(shasum -a 256 "$work/git.tgz" | awk '{print $1}')" = "$gsum" ] || { echo "the git source does not match its SHA-256" >&2; exit 1; }
 tar -xzf "$work/git.tgz" -C "$work"
 gsrc=$(find "$work" -maxdepth 1 -type d -name 'git-*' | head -1)
-make -C "$gsrc" -j4 prefix=/ RUNTIME_PREFIX=YesPlease NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1 NO_INSTALL_HARDLINKS=1 \
-  INSTALL_SYMLINKS=1 DESTDIR="$res/git" install >"$work/git-build.log" 2>&1 || { tail -20 "$work/git-build.log" >&2; exit 1; }
+# The system's own tools only: a build machine's Homebrew curl or libraries must never reach the app (a Mac without them could not
+# fetch or push over https). curl-config is macOS's own, so the https helpers link /usr/lib/libcurl.
+env PATH=/usr/bin:/bin:/usr/sbin:/sbin make -C "$gsrc" -j4 prefix=/ RUNTIME_PREFIX=YesPlease NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 \
+  NO_PYTHON=1 NO_RUST=YesPlease NO_INSTALL_HARDLINKS=1 INSTALL_SYMLINKS=1 CURL_CONFIG=/usr/bin/curl-config DESTDIR="$res/git" install \
+  >"$work/git-build.log" 2>&1 || { tail -20 "$work/git-build.log" >&2; exit 1; }
 cp "$gsrc/COPYING" "$res/git/COPYING"
-if otool -L "$res/git/bin/git" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/Library/)' >/dev/null; then
-  echo "the bundled git links a library outside the system" >&2
-  exit 1
-fi
 
 # 5. The memev command inside the app, which the window uses when MEMEV_BIN is not set.
 cat > "$res/bin/memev" <<'SH'
@@ -81,6 +80,16 @@ exec "$here/node/bin/node" "$here/core/bin/memev.mjs" "$@"
 SH
 chmod +x "$res/bin/memev"
 printf '%s\n' "memev $commit" "node $(pin node.version) darwin-$arch" "git $(pin git.version)" > "$res/PINS.txt"
+
+# Every program in the app links only libraries that every Mac has: git and each of its helpers, Node, and the window.
+bad=0
+for f in $(find "$app" -type f -perm -u+x); do
+  file -b "$f" | grep -q 'Mach-O' || continue
+  for lib in $(otool -L "$f" | tail -n +2 | awk '{print $1}'); do
+    case "$lib" in /usr/lib/*|/System/Library/*|@rpath/*|@executable_path/*|@loader_path/*) ;; *) echo "${f#$app/} links $lib" >&2; bad=1 ;; esac
+  done
+done
+[ "$bad" = 0 ] || { echo "a program in the app links a library outside the system" >&2; exit 1; }
 
 # 6. The disk image: the app and a link to Applications.
 ln -s /Applications "$work/stage/Applications"
