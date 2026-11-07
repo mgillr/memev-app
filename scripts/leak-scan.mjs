@@ -28,7 +28,7 @@ const OK_HOME = new Set(['you', 'me', 'user', 'username', 'name', 'runner', 'exa
 const REPO_URL = /(?<=^|[\s"'`(<\[])https:\/\/github\.com\/([a-z0-9-]+)\/memev(?=\.git(?![a-z0-9])|[/\s"'`)>]|$)/g;
 const ROOT_HOME = new RegExp(`(^|[\\s"'(])/${'root'}/`);
 const findings = [];
-function scanText(where, text, file = '') {
+function scanText(where, text, file = '', isCommit = false) {
   if (EXEMPT.some((re) => re.test(file)) || SELF.has(file)) return;
   const lines = text.split('\n');
   lines.forEach((line, i) => {
@@ -41,7 +41,7 @@ function scanText(where, text, file = '') {
     // GitHub writes a merge commit's first line as "Merge pull request #N from <owner>/<branch>". The owner there is the same
     // public account as in the repository URL, so on the first line of a commit message, in exactly that form, the owner segment
     // is blanked. The same word anywhere else in the message, or in a line of any other form, is still found.
-    const merge = !file && i === 0 ? /^(Merge pull request #\d+ from )([A-Za-z0-9-]+)(\/\S+)$/.exec(line) : null;
+    const merge = isCommit && i === 0 ? /^(Merge pull request #\d+ from )([A-Za-z0-9-]+)(\/\S+)$/.exec(line) : null;
     const lower = file ? line.toLowerCase().replace(REPO_URL, (m, owner) => (deny.has(h(owner)) ? m.replace(`/${owner}/`, '//') : m))
       : merge && deny.has(h(merge[2].toLowerCase())) ? `${merge[1]}${merge[3]}`.toLowerCase() : line.toLowerCase();
     const words = new Set();
@@ -67,7 +67,7 @@ if (process.argv.includes('--history')) {
   const log = execFileSync('git', ['log', '--format=%H%x00%B%x00'], { cwd: root, encoding: 'utf8' }).split('\0');
   for (let i = 0; i + 1 < log.length; i += 2) {
     const sha = log[i].trim();
-    scanText(`commit ${sha.slice(0, 10)}`, log[i + 1]);
+    scanText(`commit ${sha.slice(0, 10)}`, log[i + 1], '', true);
   }
 }
 if (findings.length) { console.error(`leak scan: ${findings.length} finding(s)`); for (const f of findings) console.error(`  ${f}`); process.exit(1); }
