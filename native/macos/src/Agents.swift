@@ -86,7 +86,7 @@ final class AgentScreens {
     connectAction.isEnabled = n > 0 && !busy
   }
 
-  func connectSheet() {
+  func connectSheet(onDone: (() -> Void)? = nil) {
     let chosen = apps.filter { ticked.contains($0.id) && $0.connectable && plainId($0.id) }
     guard !chosen.isEmpty, let o = owner else { return }
     let title = chosen.count == 1 ? "Connect 1 AI app?" : "Connect \(chosen.count) AI apps?"
@@ -97,7 +97,7 @@ final class AgentScreens {
       source: "memev connect " + chosen.map { $0.id }.joined(separator: " "), main: "Connect",
       onMain: { [weak self] host in
         self?.run(host, doing: "Connecting \(chosen.count == 1 ? chosen[0].name : "\(chosen.count) apps").", args: ["connect"] + chosen.map { $0.id }, timeout: 120000,
-                  done: "Connected", failed: "Not every app was connected")
+                  done: "Connected", failed: "Not every app was connected", onDone: onDone)
       }))
   }
 
@@ -245,12 +245,13 @@ final class AgentScreens {
   // MARK: Running
 
   /// Runs one command off the main thread for a sheet, then shows the core's answer and reads the screen again.
-  func run(_ host: SheetHost, doing: String, args: [String], timeout: Int, done: String, failed: String) {
+  func run(_ host: SheetHost, doing: String, args: [String], timeout: Int, done: String, failed: String, onDone: (() -> Void)? = nil) {
     runThen(host, doing: doing, args: args, timeout: timeout) { [weak self] code, answer in
       guard let self = self, let o = self.owner else { return }
       let title = code == 0 ? done : code == -1 ? "Memev did not answer in time" : failed
       o.sheet.present(SheetModel(title: title, note: self.cut(answer).isEmpty ? (code == 0 ? "Done." : "The core gave no reason.") : self.cut(answer),
-                                 source: "memev " + args.joined(separator: " "), main: "Close"))
+                                 source: "memev " + args.joined(separator: " "), main: onDone == nil ? "Close" : "Continue",
+                                 onMain: { host in host.dismiss(); onDone?() }))
       if ["bots", "memory"].contains(o.current) { o.loadPage(o.current) }
     }
   }
