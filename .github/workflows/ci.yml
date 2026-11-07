@@ -64,7 +64,7 @@ jobs:
         shell: pwsh
         run: |
           git init -q "$env:RUNNER_TEMP\memev-core"
-          git -C "$env:RUNNER_TEMP\memev-core" fetch --depth 1 https://github.com/mgillr/memev.git 2e58f9400141f82a7909c352afb128db22213e0c
+          git -C "$env:RUNNER_TEMP\memev-core" fetch --depth 1 https://github.com/mgillr/memev.git ceb322f853488ee83162a5d6b39169243bb7ace7
           git -C "$env:RUNNER_TEMP\memev-core" checkout -q FETCH_HEAD
       - name: Prove the Windows first launch against that core
         shell: pwsh
