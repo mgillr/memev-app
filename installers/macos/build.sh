@@ -66,7 +66,7 @@ tar -xzf "$work/git.tgz" -C "$work"
 gsrc=$(find "$work" -maxdepth 1 -type d -name 'git-*' | head -1)
 # The system's own tools only: a build machine's Homebrew curl or libraries must never reach the app (a Mac without them could not
 # fetch or push over https). curl-config is macOS's own, so the https helpers link /usr/lib/libcurl.
-# Built for the oldest macOS the app supports (minos), not the build machine's: a git built on macOS 15 refuses to start on 12.
+# Built for the oldest macOS the app supports (minos), not the build machine's, so nothing in git relies on a newer macOS than the app promises.
 env PATH=/usr/bin:/bin:/usr/sbin:/sbin MACOSX_DEPLOYMENT_TARGET="$minos" make -C "$gsrc" -j4 prefix=/ RUNTIME_PREFIX=YesPlease NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 \
   NO_PYTHON=1 NO_RUST=YesPlease NO_INSTALL_HARDLINKS=1 INSTALL_SYMLINKS=1 CURL_CONFIG=/usr/bin/curl-config DESTDIR="$res/git" install \
   >"$work/git-build.log" 2>&1 || { tail -20 "$work/git-build.log" >&2; exit 1; }
