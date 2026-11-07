@@ -22,7 +22,7 @@ struct SheetModel {
 /// The confirmation sheets of 1.16. Each names what changes. The window runs none of these commands yet; a caller supplies what
 /// the main button does once the command is in the window's contract.
 enum ConfirmKind: String, CaseIterable {
-  case revoke, replace, rmpc, rmpath, uninstall, purge, stop, rotate, compact, disconnect, drop, cancel, mark, switchoff
+  case revoke, replace, rmpc, rmpath, uninstall, purge, stop, rotate, compact, disconnect, drop, cancel, mark, switchoff, stopagents, undoimport
 
   func title(_ subject: String) -> String {
     switch self {
@@ -40,6 +40,8 @@ enum ConfirmKind: String, CaseIterable {
     case .cancel: return "Cancel \u{201C}\(subject)\u{201D}?"
     case .mark: return "Mark \u{201C}\(subject)\u{201D} as checked?"
     case .switchoff: return "Switch off Checked work?"
+    case .stopagents: return "Stop the background agents for \(subject)?"
+    case .undoimport: return "Undo import \(subject)?"
     }
   }
 
@@ -59,6 +61,8 @@ enum ConfirmKind: String, CaseIterable {
     case .cancel: return "The task stops here. You give a reason, and it is kept with the task."
     case .mark: return "The lead only, with evidence, on this computer."
     case .switchoff: return "Nothing is held or blocked while it is off."
+    case .stopagents: return "It takes no more turns until you start it again. Work it already did is kept."
+    case .undoimport: return "Everything that import brought in leaves your memory."
     }
   }
 
@@ -78,6 +82,8 @@ enum ConfirmKind: String, CaseIterable {
     case .cancel: return "Cancel the task"
     case .mark: return "Mark as checked"
     case .switchoff: return "Switch off"
+    case .stopagents: return "Stop"
+    case .undoimport: return "Undo import"
     }
   }
 
