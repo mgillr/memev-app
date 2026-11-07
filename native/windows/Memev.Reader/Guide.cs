@@ -164,7 +164,7 @@ public static class Guide
       int limit = args[0] == "init" ? 300000 : args[0] == "join" ? 300000 : 60000;
       var clock = System.Diagnostics.Stopwatch.StartNew();
       var r = Core.Capture(bin, args, limit, null, true);
-      Log($"step {args[0]}: done={r.Done} exit={r.ExitCode} ms={clock.ElapsedMilliseconds} out: {Scrub(Failed(r.Output)).Replace('\n', ' | ')}");
+      Log($"step {args[0]}: done={r.Done} exit={r.ExitCode} ms={clock.ElapsedMilliseconds} out: {Scrub(Failed(r.Output)).Replace("\n", " | ")}");
       if (!r.Done) { detail = $"The command {args[0]} took longer than {limit / 1000} seconds, so it was stopped. Try again; if it happens twice, open Health."; return false; }
       if (r.Done && r.ExitCode == 126) { detail = "That folder, address or code holds a character this window will not pass to the core: \" % ! & | < > ^ ( ). Choose one without it."; return false; }
       if (!r.Done || r.ExitCode != 0) { detail = $"The command {args[0]} stopped. {Scrub(Failed(r.Output))}".TrimEnd(); return false; }
