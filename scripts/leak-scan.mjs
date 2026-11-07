@@ -17,6 +17,9 @@ if (process.env.LEAK_DENYLIST) for (const w of fs.readFileSync(process.env.LEAK_
 // Files whose content is fixed by a licence (attribution must be kept verbatim) or by an approval record.
 const EXEMPT = [/^vendor\/[^/]+\/(NOTICE|LICENSE)$/, /^NOTICE$/];
 const SELF = new Set(['scripts/leak-denylist.json']);
+// Commit messages already on main that can't be changed, because history is never rewritten. Only the listed line of each is
+// skipped; the rest of the message is still scanned. A merge message names no seat or tool, so this list stays short.
+const ALLOW_COMMIT_LINE = new Map([['9f053b42d33ac4c05e4836b85d9bec178f33af0e', 3]]);
 const OK_EMAIL = /(@(example\.(com|org|net)|[a-z0-9-]+\.invalid|localhost|users\.noreply\.github\.com)|^git@(ssh\.)?github\.com)$/i; // git@github.com and git@ssh.github.com (the port 443 SSH host) are SSH remotes, not addresses
 const OK_IP = (ip) => /^(127\.|0\.0\.0\.0$|10\.|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|255\.)/.test(ip) || ip.split('.').some((x) => Number(x) > 255);
 const OK_HOME = new Set(['you', 'me', 'user', 'username', 'name', 'runner', 'example', 'alice', 'bob', 'node', '<name>', '<user>', 'ubuntu', 'shared', 'memev']);
@@ -76,8 +79,9 @@ for (const f of files) {
 if (process.argv.includes('--history')) {
   const log = execFileSync('git', ['log', '--format=%H%x00%B%x00'], { cwd: root, encoding: 'utf8' }).split('\0');
   for (let i = 0; i + 1 < log.length; i += 2) {
-    const sha = log[i].trim();
-    scanText(`commit ${sha.slice(0, 10)}`, log[i + 1], '', true);
+    const sha = log[i].trim(); const lines = log[i + 1].split('\n'); const skip = ALLOW_COMMIT_LINE.get(sha);
+    if (skip) lines[skip - 1] = '';
+    scanText(`commit ${sha.slice(0, 10)}`, lines.join('\n'), '', true);
   }
 }
 if (findings.length) { console.error(`leak scan: ${findings.length} finding(s)`); for (const f of findings) console.error(`  ${f}`); process.exit(1); }
