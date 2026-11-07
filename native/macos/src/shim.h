@@ -47,3 +47,7 @@ bool memev_shim_client_selectable(int i);
 /* The first-launch marker: MEMEV_GUIDE=1 or off forces it, else it shows until the marker file exists. */
 bool memev_shim_want_guide(void);
 void memev_shim_guide_done(void);
+
+/* Runs the resolved memev with these arguments (no shell) and returns its exit code, or -1 when it could not run or timed out.
+   out holds its standard output. */
+int memev_shim_run(const char *const *args, int argc, char *out, int outn, int timeout_ms);
