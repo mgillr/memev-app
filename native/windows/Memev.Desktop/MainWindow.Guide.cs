@@ -84,6 +84,7 @@ sealed partial class MainWindow
 
   void GuideShow(int step)
   {
+    Guide.Log($"show step {step} (was {guideStep}, busy={guideBusy})");
     BuildGuideView();
     inGuide = true;
     guideStep = step;
@@ -247,6 +248,7 @@ sealed partial class MainWindow
       primary.IsEnabled = true;
       back.IsEnabled = true;
       var (ok, d) = t.Status == TaskStatus.RanToCompletion ? t.Result : (false, "");
+      Guide.Log($"apply result: ok={ok} task={t.Status}{(t.Exception != null ? " error=" + t.Exception.GetBaseException().GetType().Name + ": " + t.Exception.GetBaseException().Message : "")} detail={d.Replace('\n', ' | ')}");
       if (!ok) { guideDetail.Text = d.Length > 0 ? Paths.Show(d) : failed; if (guideStep == 1) plan.ConfirmJoin = false; return; }
       guideDetail.Text = "";
       Reload();
@@ -257,6 +259,7 @@ sealed partial class MainWindow
 
   void GuideNext()
   {
+    Guide.Log($"continue pressed on step {guideStep} (busy={guideBusy})");
     if (guideBusy) return;
     switch (guideStep)
     {

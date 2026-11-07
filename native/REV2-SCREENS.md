@@ -865,7 +865,7 @@ These are not missing core commands. They are places where the design and this r
 
 ## 5. Addendum, 7 Nov 2026: three screens the owner asked for after the map was written
 
-These follow the rev2 visual language of section 1: the section label, lists on `panel`, the one amber button, form sheets with an amber main button, and confirmation sheets with a red main button. The sources are the commands of the trial core on branch `trial/windows-20261107`, pinned in the installers at `5f4b0f118f7046c874f15f309d5f65bc70fcff03`. Where that core has no command, the element says so; nothing is a sample figure.
+These follow the rev2 visual language of section 1: the section label, lists on `panel`, the one amber button, form sheets with an amber main button, and confirmation sheets with a red main button. The sources are the commands of the trial core on branch `trial/windows-20261107`, pinned in the installers at `c6c74b2ccbef1c6382b03c24fea12b6d62fca8bb`. Where that core has no command, the element says so; nothing is a sample figure.
 
 The guided first launch keeps its first steps (this computer or another, the notes folder, the backup remote, the check that a note comes back). After the check it asks three more things, in this order, and each one has a "Skip" button: connect your AI apps (5.1), bring in your chat history (5.2), and choose the lead (5.4). Skipping changes nothing. A computer that joined another computer's memory skips all three, because its memory lives on the other computer.
 
