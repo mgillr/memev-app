@@ -16,6 +16,8 @@ int main(int argc, char **argv) {
   guide_plan_clear(&plan);
   plan.first_computer = 1;
   snprintf(plan.notes_dir, sizeof plan.notes_dir, "%s", argv[2]);
+  /* a remote address without the tick: the proof then checks that none was recorded */
+  snprintf(plan.backup_url, sizeof plan.backup_url, "file:///tmp/memev-proof-not-recorded.git");
   plan.confirm_backup = false;
   plan.confirm_apps = false;
   if (getenv("MEMEV_GUIDE_PORT")) plan.port = atoi(getenv("MEMEV_GUIDE_PORT"));

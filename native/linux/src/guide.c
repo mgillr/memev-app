@@ -67,6 +67,9 @@ int guide_parse_clients(const char *text, GuideApp *apps, int max) {
   return count;
 }
 
+/* The host part, after the scheme, must not start with '-', or git could read it as an option (ssh://-oProxyCommand=...). */
+static int host_ok(const char *h) { return h[0] != 0 && h[0] != '-' && h[0] != '/'; }
+
 static int url_ok(const char *s) {
   size_t n = s ? strlen(s) : 0;
   if (n < 8 || n > 400) return 0;
@@ -74,22 +77,57 @@ static int url_ok(const char *s) {
     unsigned char c = (unsigned char)s[i];
     if (c <= 32 || c == 127) return 0;
   }
-  if (strncmp(s, "-", 1) == 0) return 0;
-  if (strncmp(s, "file://", 7) == 0) return 1;
-  if (strncmp(s, "https://", 8) == 0) return 1;
-  if (strncmp(s, "ssh://", 6) == 0) return 1;
-  if (strncmp(s, "git://", 6) == 0) return 1;
-  if (strncmp(s, "git@", 4) == 0 && strchr(s, ':')) return 1;
+  if (strncmp(s, "file:///", 8) == 0) return s[8] != 0;
+  if (strncmp(s, "https://", 8) == 0) return host_ok(s + 8);
+  if (strncmp(s, "ssh://", 6) == 0) return host_ok(s + 6);
+  if (strncmp(s, "git://", 6) == 0) return host_ok(s + 6);
+  if (strncmp(s, "git@", 4) == 0) {
+    const char *colon = strchr(s + 4, ':');
+    return colon && colon > s + 4 && host_ok(s + 4) && colon[1] != 0;
+  }
   return 0;
 }
 
-static int absolute_dir(const char *s) {
+/* A full path, written out with '.', '..' and repeated slashes resolved the way the core's path.resolve does, into out.
+   0 when it is not a full path, holds a control character, or resolves to the root of the disk. */
+static int absolute_dir(const char *s, char *out, size_t outn) {
   size_t n = s ? strlen(s) : 0;
-  if (n < 4 || n > 400 || s[0] != '/') return 0;
-  if (strcmp(s, "/") == 0) return 0;
+  if (n < 2 || n > 400 || s[0] != '/' || outn < 2) return 0;
   for (size_t i = 0; i < n; i++) {
     unsigned char c = (unsigned char)s[i];
     if (c < 32 || c == 127) return 0;
+  }
+  size_t o = 0;
+  out[0] = 0;
+  for (const char *p = s; *p;) {
+    while (*p == '/') p++;
+    const char *e = p;
+    while (*e && *e != '/') e++;
+    size_t len = (size_t)(e - p);
+    if (len == 0) break;
+    if (len == 1 && p[0] == '.') { p = e; continue; }
+    if (len == 2 && p[0] == '.' && p[1] == '.') {
+      while (o > 0 && out[o - 1] != '/') o--;
+      if (o > 0) o--;
+      out[o] = 0;
+      p = e;
+      continue;
+    }
+    if (o + 1 + len + 1 > outn) return 0;
+    out[o++] = '/';
+    memcpy(out + o, p, len);
+    o += len;
+    out[o] = 0;
+    p = e;
+  }
+  return o > 0;
+}
+
+static int code_ok(const char *s) {
+  if (!s || s[0] == 0 || s[0] == '-') return 0;
+  for (const char *p = s; *p; p++) {
+    unsigned char c = (unsigned char)*p;
+    if (c <= 32 || c == 127) return 0;
   }
   return 1;
 }
@@ -119,7 +157,7 @@ int guide_build(const GuidePlan *plan, GuideCmd *out, int max, char *why, size_t
   }
   int n = 0;
   if (plan->first_computer == 0) {
-    if (!plan->confirm_join || plan->join_code[0] == 0 || plan->join_code[0] == '-' || strchr(plan->join_code, ' ')) {
+    if (!plan->confirm_join || !code_ok(plan->join_code)) {
       if (why) snprintf(why, whyn, "Joining waits until you enter a code and confirm. Nothing is sent before that.");
       return -1;
     }
@@ -129,7 +167,8 @@ int guide_build(const GuidePlan *plan, GuideCmd *out, int max, char *why, size_t
     add_arg(&out[n], plan->join_code);
     return 1;
   }
-  if (!absolute_dir(plan->notes_dir)) {
+  char dir[sizeof plan->notes_dir];
+  if (!absolute_dir(plan->notes_dir, dir, sizeof dir)) {
     if (why) snprintf(why, whyn, "The notes folder has to be a full path, and not the root of the disk.");
     return -1;
   }
@@ -141,7 +180,7 @@ int guide_build(const GuidePlan *plan, GuideCmd *out, int max, char *why, size_t
   push_cmd(&out[n], "memev");
   add_arg(&out[n], "init");
   add_arg(&out[n], "--root");
-  add_arg(&out[n], plan->notes_dir);
+  add_arg(&out[n], dir);
   add_arg(&out[n], "--local-only");
   add_arg(&out[n], "--no-connect");
   add_arg(&out[n], "--no-service");
@@ -185,8 +224,9 @@ static void scrub(const char *src, char *dst, size_t n) {
   const char *start = len > 180 ? src + len - 180 : src;
   size_t o = 0;
   for (const char *p = start; *p && o + 1 < n; p++) {
+    /* a line that names a token is cut there, so its value is never shown */
     if (strncmp(p, "token", 5) == 0) {
-      p += 4;
+      while (p[1] && p[1] != '\n') p++;
       continue;
     }
     unsigned char c = (unsigned char)*p;
@@ -212,6 +252,7 @@ int guide_apply(const GuidePlan *plan, const char *bin, char *detail, size_t det
     argv[0] = (char *)bin;
     argv[cmds[i].argc] = NULL;
     int code = 0;
+    out[0] = 0; /* memev_capture leaves out unwritten when it cannot start the command */
     int timeout = strcmp(cmds[i].arg[1], "init") == 0 ? 20000 : 10000;
     if (memev_capture(bin, argv, out, sizeof out, timeout, &code) != 0 || code != 0) {
       char bit[200];

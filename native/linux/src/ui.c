@@ -452,7 +452,7 @@ static void guide_show(App *a, int step) {
     gtk_widget_set_visible(a->guide_apps, TRUE);
   } else if (step == 3) {
     gtk_label_set_text(GTK_LABEL(a->page_title), "Back up to your own git remote?");
-    gtk_label_set_text(GTK_LABEL(a->guide_text), "Leave this blank to skip it. Recording a remote does not upload the notes, and nothing is recorded unless you tick the line.");
+    gtk_label_set_text(GTK_LABEL(a->guide_text), "Leave this blank to skip it. Nothing is recorded unless you tick the line. If you record a remote, Memev pushes your notes to it: when it starts, every 5 minutes by default, and when it stops.");
     gtk_widget_set_visible(a->guide_entry, TRUE);
     gtk_widget_set_visible(a->guide_backup, TRUE);
     gtk_check_button_set_active(GTK_CHECK_BUTTON(a->guide_backup), FALSE);
@@ -508,7 +508,7 @@ static void guide_next(App *a) {
   guide_collect(a);
   if (a->guide_step == 1 && a->plan.first_computer == 0) {
   char bin[4096];
-  char detail[400];
+  char detail[400] = "";
   if (memev_resolve_bin(bin, sizeof bin) != 0 || guide_apply(&a->plan, bin, detail, sizeof detail) != 0) {
     gtk_label_set_text(GTK_LABEL(a->guide_detail), detail[0] ? detail : "Join did not run.");
       a->plan.confirm_join = false;
@@ -547,7 +547,7 @@ static void guide_next(App *a) {
     return;
   }
   char bin[4096];
-  char detail[400];
+  char detail[400] = "";
   if (memev_resolve_bin(bin, sizeof bin) != 0 || guide_apply(&a->plan, bin, detail, sizeof detail) != 0) {
     gtk_label_set_text(GTK_LABEL(a->guide_detail), detail[0] ? detail : "The check did not pass.");
     return;
@@ -731,7 +731,7 @@ static void on_activate(GtkApplication *application, gpointer ud) {
   gtk_widget_set_visible(a->guide_entry, FALSE);
   a->guide_apps = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   gtk_widget_set_visible(a->guide_apps, FALSE);
-  a->guide_backup = gtk_check_button_new_with_label("Record this remote");
+  a->guide_backup = gtk_check_button_new_with_label("Record this remote, and push my notes to it");
   gtk_widget_set_visible(a->guide_backup, FALSE);
   a->guide_detail = gtk_label_new("");
   gtk_label_set_xalign(GTK_LABEL(a->guide_detail), 0);
