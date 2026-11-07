@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Builds dist\Memev-<version>-windows-x64-setup.exe: the window (self-contained, so .NET is not needed on the PC), the Memev core
 # at the commit in pins.json, and the pinned Node.js, so nothing else has to be installed first. Every download is checked
-# against its SHA-256 before use. Nothing is signed or published. The core still uses the PC's own git.
+# against its SHA-256 before use, and so is the pinned MinGit, the git the core uses, since a new PC has none. Nothing is signed
+# or published.
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $repo = Resolve-Path (Join-Path $here '..\..')
@@ -46,9 +47,17 @@ New-Item -ItemType Directory -Force -Path (Join-Path $res 'node'), (Join-Path $r
 Copy-Item (Join-Path $nd.FullName 'node.exe') (Join-Path $res 'node\node.exe')
 Copy-Item (Join-Path $nd.FullName 'LICENSE') (Join-Path $res 'node\LICENSE')
 
+# 3b. The pinned MinGit, checked before use: the core keeps the notes' history with git, and a new PC has no git.
+$gzip = Join-Path $work 'mingit.zip'
+Invoke-WebRequest -Uri $pins.git.'win-x64'.url -OutFile $gzip -UseBasicParsing
+if ((Get-FileHash $gzip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pins.git.'win-x64'.sha256) { throw 'the MinGit download does not match its SHA-256' }
+Expand-Archive $gzip -DestinationPath (Join-Path $res 'git')
+if (-not (Test-Path (Join-Path $res 'git\cmd\git.exe'))) { throw 'MinGit has no cmd\git.exe' }
+
 # 4. The memev command inside the app, which the window uses when MEMEV_BIN is not set.
-Set-Content -Path (Join-Path $res 'bin\memev.cmd') -Encoding ascii -Value '@"%~dp0..\node\node.exe" "%~dp0..\core\bin\memev.mjs" %*'
-Set-Content -Path (Join-Path $res 'PINS.txt') -Encoding ascii -Value @("memev $($pins.memev_commit)", "node $($pins.node.version) win-x64")
+# The bundled git comes first on PATH, for this command and everything the core starts; setlocal keeps that from the caller.
+Set-Content -Path (Join-Path $res 'bin\memev.cmd') -Encoding ascii -Value @('@setlocal', '@set "PATH=%~dp0..\git\cmd;%PATH%"', '@"%~dp0..\node\node.exe" "%~dp0..\core\bin\memev.mjs" %*')
+Set-Content -Path (Join-Path $res 'PINS.txt') -Encoding ascii -Value @("memev $($pins.memev_commit)", "node $($pins.node.version) win-x64", "git $($pins.git.version) MinGit win-x64")
 
 # 5. The installer.
 $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
