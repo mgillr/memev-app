@@ -17,6 +17,9 @@ if (process.env.LEAK_DENYLIST) for (const w of fs.readFileSync(process.env.LEAK_
 // Files whose content is fixed by a licence (attribution must be kept verbatim) or by an approval record.
 const EXEMPT = [/^vendor\/[^/]+\/(NOTICE|LICENSE)$/, /^NOTICE$/];
 const SELF = new Set(['scripts/leak-denylist.json']);
+// Commit messages already on main that can't be changed, because history is never rewritten. Only the listed line of each is
+// skipped; the rest of the message is still scanned. A merge message names no seat or tool, so this list stays short.
+const ALLOW_COMMIT_LINE = new Map([['9f053b42d33ac4c05e4836b85d9bec178f33af0e', 3]]);
 const OK_EMAIL = /(@(example\.(com|org|net)|[a-z0-9-]+\.invalid|localhost|users\.noreply\.github\.com)|^git@(ssh\.)?github\.com)$/i; // git@github.com and git@ssh.github.com (the port 443 SSH host) are SSH remotes, not addresses
 const OK_IP = (ip) => /^(127\.|0\.0\.0\.0$|10\.|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|255\.)/.test(ip) || ip.split('.').some((x) => Number(x) > 255);
 const OK_HOME = new Set(['you', 'me', 'user', 'username', 'name', 'runner', 'example', 'alice', 'bob', 'node', '<name>', '<user>', 'ubuntu', 'shared', 'memev']);
@@ -28,7 +31,17 @@ const OK_HOME = new Set(['you', 'me', 'user', 'username', 'name', 'runner', 'exa
 const REPO_URL = /(?<=^|[\s"'`(<\[])https:\/\/github\.com\/([a-z0-9-]+)\/memev(?=\.git(?![a-z0-9])|[/\s"'`)>]|$)/g;
 const ROOT_HOME = new RegExp(`(^|[\\s"'(])/${'root'}/`);
 const findings = [];
-function scanText(where, text, file = '') {
+// The account that owns this repository, read at run time from the origin remote's GitHub URL for memev-app and never written
+// here. It is null when there is no origin, or the origin is not github.com/<owner>/memev-app; then nothing is blanked. The origin
+// is the clone's own config, so it decides only what that clone accepts in its own history; CI checks out from GitHub.
+function repoOwner() {
+  let url = '';
+  try { url = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; }
+  const m = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@(?:ssh\.)?github\.com(?::443)?\/)([A-Za-z0-9-]+)\/memev-app(?:\.git)?\/?$/i.exec(url);
+  return m ? m[1].toLowerCase() : null;
+}
+const OWNER = repoOwner();
+function scanText(where, text, file = '', isCommit = false) {
   if (EXEMPT.some((re) => re.test(file)) || SELF.has(file)) return;
   const lines = text.split('\n');
   lines.forEach((line, i) => {
@@ -38,7 +51,12 @@ function scanText(where, text, file = '') {
     // character before it is not a letter, a digit, a dot or a hyphen, so gist.github.com and a look-alike host do not count. The
     // same word anywhere else on the line, in another repository's URL, on another host, in a file path or in a commit message is
     // still found.
-    const lower = file ? line.toLowerCase().replace(REPO_URL, (m, owner) => (deny.has(h(owner)) ? m.replace(`/${owner}/`, '//') : m)) : line.toLowerCase();
+    // GitHub writes a merge commit's first line as "Merge pull request #N from <owner>/<branch>". The owner there is the same
+    // public account as in the repository URL, so on the first line of a commit message, in exactly that form, the owner segment
+    // is blanked. The same word anywhere else in the message, or in a line of any other form, is still found.
+    const merge = isCommit && i === 0 && OWNER ? /^(Merge pull request #\d+ from )([A-Za-z0-9-]+)(\/\S+)$/.exec(line) : null;
+    const lower = file ? line.toLowerCase().replace(REPO_URL, (m, owner) => (deny.has(h(owner)) ? m.replace(`/${owner}/`, '//') : m))
+      : merge && merge[2].toLowerCase() === OWNER ? `${merge[1]}${merge[3]}`.toLowerCase() : line.toLowerCase();
     const words = new Set();
     for (const w of lower.split(/[^a-z0-9@._+-]+/)) { if (!w) continue; words.add(w); words.add(w.replace(/^[._-]+|[._-]+$/g, '')); for (const p of w.split(/[._@+-]+/)) if (p) words.add(p); }
     for (const w of lower.split(/[^a-z0-9]+/)) if (w) words.add(w);
@@ -61,8 +79,9 @@ for (const f of files) {
 if (process.argv.includes('--history')) {
   const log = execFileSync('git', ['log', '--format=%H%x00%B%x00'], { cwd: root, encoding: 'utf8' }).split('\0');
   for (let i = 0; i + 1 < log.length; i += 2) {
-    const sha = log[i].trim();
-    scanText(`commit ${sha.slice(0, 10)}`, log[i + 1]);
+    const sha = log[i].trim(); const lines = log[i + 1].split('\n'); const skip = ALLOW_COMMIT_LINE.get(sha);
+    if (skip) lines[skip - 1] = '';
+    scanText(`commit ${sha.slice(0, 10)}`, lines.join('\n'), '', true);
   }
 }
 if (findings.length) { console.error(`leak scan: ${findings.length} finding(s)`); for (const f of findings) console.error(`  ${f}`); process.exit(1); }

@@ -17,7 +17,7 @@ jobs:
           node-version: 22
       - run: node scripts/leak-scan.mjs --history
       - run: node scripts/fence.mjs
-      - run: node --test test/fence.test.mjs
+      - run: node --test test/fence.test.mjs test/leak-scan.test.mjs
   native-linux:
     runs-on: ubuntu-latest
     steps:
@@ -26,6 +26,52 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev xvfb lsof
       - name: Build and test the Linux window
         run: make -C native/linux test
+      - name: Fetch the core used for the proof
+        run: |
+          git init -q /tmp/memev-core
+          git -C /tmp/memev-core fetch --depth 1 https://github.com/mgillr/memev.git 99b12c1ee78021bab6127af524ca3eba800a9d02
+          git -C /tmp/memev-core checkout -q FETCH_HEAD
+      - name: Prove the first launch against that core
+        run: make -C native/linux real-core
+  native-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test the macOS window
+        run: make -C native/macos test
+  native-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Test the Windows reader
+        run: dotnet run --project native/windows/Memev.Reader.Check -c Release
+      - name: Build the Windows window
+        run: dotnet build native/windows/Memev.Desktop -c Release
+      - name: Self-check the Windows window
+        shell: pwsh
+        run: native/windows/test/self-check.ps1
+  installer-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the disk image
+        run: installers/macos/build.sh
+      - name: Install, start, read, stop and uninstall
+        run: make -C native/macos proof && MEMEV_PROOF=native/macos/proof installers/macos/test/install-check.sh installers/macos/dist/Memev-*.dmg
   linux-cli:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

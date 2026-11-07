@@ -1,0 +1,327 @@
+// SPDX-License-Identifier: Apache-2.0
+// The Windows window, first slice: the same window as native/linux and native/macos. It reads a Memev core on this computer
+// through Memev.Reader and shows the health sentence, the seven menu entries, Help and support, and the overview sentence.
+// It writes nothing and sends nothing beyond loopback. MEMEV_SELF_CHECK=1 prints what it shows and exits.
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Shapes;
+using System.Windows.Threading;
+using Memev.Reader;
+
+namespace Memev.Desktop;
+
+static class Program
+{
+  // A window program has no console; when stdout is redirected (a test, CI), lines still reach it through the handle.
+  static readonly Lazy<StreamWriter> stdout = new(() => new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+  public static void Out(string line) => stdout.Value.WriteLine(line);
+
+  [STAThread]
+  static int Main(string[] args)
+  {
+    if (args.Length > 0 && args[0] == "--version")
+    {
+      Out("memev-desktop 0.0.1-slice1");
+      return 0;
+    }
+    var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
+    return app.Run(new MainWindow());
+  }
+}
+
+sealed record NavItem(string Id, string Label, int Kind, string? Later);
+
+sealed class Theme
+{
+  public required string Name;
+  public required Color Back, Text, Dim, Sub, NavText, Selected, Rule, Bad, Warn;
+  public static readonly Color Amber = Color.FromRgb(0xF2, 0xB5, 0x44);
+  public static readonly Color Ink = Color.FromRgb(0x0A, 0x0D, 0x12);
+  static Color C(uint rgb) => Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+  public static readonly Theme Dark = new() { Name = "dark", Back = C(0x0A0D12), Text = C(0xE8ECF2), Dim = C(0x7F8997), Sub = C(0xA4ADBA), NavText = C(0xA4ADBA), Selected = C(0x181E27), Rule = C(0x374252), Bad = C(0xFF8A7A), Warn = C(0xF2B544) };
+  public static readonly Theme Light = new() { Name = "light", Back = C(0xF6F7F9), Text = C(0x10151C), Dim = C(0x5F6978), Sub = C(0x46505E), NavText = C(0x46505E), Selected = C(0xEDEFF3), Rule = C(0xC3CAD4), Bad = C(0xB3261E), Warn = C(0x8A5600) };
+
+  // MEMEV_THEME=dark or light; otherwise this computer's app setting
+  public static Theme Pick()
+  {
+    switch (Environment.GetEnvironmentVariable("MEMEV_THEME"))
+    {
+      case "dark": return Dark;
+      case "light": return Light;
+    }
+    try
+    {
+      using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+      return key?.GetValue("AppsUseLightTheme") is int v && v == 0 ? Dark : Light;
+    }
+    catch (System.Security.SecurityException) { return Light; }
+  }
+}
+
+sealed class MainWindow : Window
+{
+  static readonly NavItem[] Nav =
+  {
+    new("overview", "Overview", 0, null),
+    new("operations", "Operations", 2, "Not in this slice. Live agent panes are not drawn here."),
+    new("projects", "Projects", 2, "Not in this slice. No project list is loaded yet."),
+    new("bots", "Bots and agents", 2, "Not in this slice. The roster is not loaded yet."),
+    new("memory", "Memory", 2, "Not in this slice. Search stays on the memev command until a later slice."),
+    new("checked", "Checked work", 2, "Not in this slice. Receipts are not listed yet."),
+    new("settings", "Settings", 2, "Not in this slice. The theme follows this computer."),
+  };
+
+  public static readonly RoutedCommand RefreshCommand = new("Refresh", typeof(MainWindow));
+
+  readonly Theme theme = Theme.Pick();
+  readonly bool selfCheck = Environment.GetEnvironmentVariable("MEMEV_SELF_CHECK") != null;
+  readonly Border sidebar;
+  readonly TextBlock healthLink = new() { TextWrapping = TextWrapping.Wrap, Text = "Reading Memev." };
+  readonly Button healthButton;
+  readonly List<Button> navButtons = new();
+  readonly TextBlock pageTitle = new() { Text = "Executive overview", FontSize = 28, FontWeight = FontWeights.Medium };
+  readonly Button primary;
+  readonly TextBlock overviewSentence = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap };
+  readonly TextBlock northStar = new() { TextWrapping = TextWrapping.Wrap };
+  readonly StackPanel attention = new();
+  readonly TextBlock healthSentence = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap };
+  readonly StackPanel checks = new();
+  readonly TextBlock laterBody = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap };
+  readonly StackPanel overviewPage, healthPage, laterPage;
+  Glance glance = new();
+  int attentionRows;
+  bool loading;
+
+  SolidColorBrush B(Color c) => new(c);
+
+  public MainWindow()
+  {
+    Title = "Memev";
+    MinWidth = 1024;
+    MinHeight = 700;
+    Width = 1120;
+    Height = 760;
+    Background = B(theme.Back);
+    Foreground = B(theme.Text);
+
+    // the sidebar is 240 wide in all, with its padding inside that width
+    var top = new StackPanel();
+    top.Children.Add(new TextBlock { Text = "Memev", FontSize = 20, FontWeight = FontWeights.Medium, Foreground = B(theme.Text), Margin = new Thickness(8, 0, 0, 8) });
+    healthButton = NavButton(healthLink, (_, _) => ShowHealth());
+    healthLink.Foreground = B(theme.NavText);
+    top.Children.Add(healthButton);
+    top.Children.Add(new Border { Height = 1, Background = B(theme.Rule), Margin = new Thickness(0, 8, 0, 8) });
+    for (int i = 0; i < Nav.Length; i++)
+    {
+      int index = i;
+      var b = NavButton(new TextBlock { Text = Nav[i].Label, Foreground = B(theme.NavText) }, (_, _) => ShowPage(index));
+      navButtons.Add(b);
+      top.Children.Add(b);
+    }
+    var help = NavButton(new TextBlock { Text = "Help and support", Foreground = B(theme.NavText) }, (_, _) => ShowHelp());
+    var column = new DockPanel { LastChildFill = false };
+    DockPanel.SetDock(help, Dock.Bottom);
+    column.Children.Add(help);
+    DockPanel.SetDock(top, Dock.Top);
+    column.Children.Add(top);
+    sidebar = new Border { Width = 240, Padding = new Thickness(12, 16, 12, 16), Background = B(theme.Back), Child = column };
+
+    primary = new Button
+    {
+      Content = new TextBlock { Text = "Refresh", Foreground = new SolidColorBrush(Theme.Ink), FontWeight = FontWeights.Medium },
+      Background = new SolidColorBrush(Theme.Amber), BorderThickness = new Thickness(0), Padding = new Thickness(16, 6, 16, 6),
+      HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Tag = "primary",
+      Command = RefreshCommand,
+    };
+    var header = new DockPanel { Margin = new Thickness(0, 0, 0, 16) };
+    DockPanel.SetDock(primary, Dock.Right);
+    header.Children.Add(primary);
+    pageTitle.Foreground = B(theme.Text);
+    header.Children.Add(pageTitle);
+
+    overviewSentence.Foreground = B(theme.Sub);
+    northStar.Foreground = B(theme.Text);
+    overviewPage = new StackPanel();
+    overviewPage.Children.Add(overviewSentence);
+    overviewPage.Children.Add(Spaced(northStar, 8));
+    overviewPage.Children.Add(SectionHead("STATUS"));
+    overviewPage.Children.Add(attention);
+    overviewPage.Children.Add(Spaced(new TextBlock { Text = "Charts are a later slice. The lines above are the core's answers, read just now. No sample figures are shown.", FontSize = 12, Foreground = B(theme.Dim), TextWrapping = TextWrapping.Wrap }, 16));
+
+    healthSentence.Foreground = B(theme.Sub);
+    healthPage = new StackPanel { Visibility = Visibility.Collapsed };
+    healthPage.Children.Add(healthSentence);
+    healthPage.Children.Add(SectionHead("CHECKS"));
+    healthPage.Children.Add(checks);
+
+    laterBody.Foreground = B(theme.Sub);
+    laterPage = new StackPanel { Visibility = Visibility.Collapsed };
+    laterPage.Children.Add(laterBody);
+
+    var page = new StackPanel { Margin = new Thickness(36, 24, 36, 24) };
+    page.Children.Add(header);
+    page.Children.Add(overviewPage);
+    page.Children.Add(healthPage);
+    page.Children.Add(laterPage);
+
+    var root = new Grid();
+    root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) });
+    root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1) });
+    root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+    Grid.SetColumn(sidebar, 0);
+    var edge = new Rectangle { Fill = B(theme.Rule) };
+    Grid.SetColumn(edge, 1);
+    var scroll = new ScrollViewer { Content = page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    Grid.SetColumn(scroll, 2);
+    root.Children.Add(sidebar);
+    root.Children.Add(edge);
+    root.Children.Add(scroll);
+    Content = root;
+
+    CommandBindings.Add(new CommandBinding(RefreshCommand, (_, _) => Reload()));
+    InputBindings.Add(new KeyBinding(RefreshCommand, Key.R, ModifierKeys.Control));
+
+    glance = Read.Load();
+    Fill();
+    ShowPage(0);
+    ContentRendered += (_, _) =>
+    {
+      if (selfCheck) { Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(ReportAndQuit)); return; }
+      int ms = int.TryParse(Environment.GetEnvironmentVariable("MEMEV_POLL_MS"), out int v) ? v : 5000;
+      var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(200, ms)) };
+      timer.Tick += (_, _) => Reload();
+      timer.Start();
+    };
+  }
+
+  Button NavButton(TextBlock label, RoutedEventHandler onClick)
+  {
+    var b = new Button
+    {
+      Content = label, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(8, 6, 8, 6),
+      HorizontalContentAlignment = HorizontalAlignment.Left, HorizontalAlignment = HorizontalAlignment.Stretch, Cursor = Cursors.Hand,
+    };
+    b.Click += onClick;
+    return b;
+  }
+
+  static FrameworkElement Spaced(FrameworkElement e, double top) { e.Margin = new Thickness(0, top, 0, 0); return e; }
+
+  FrameworkElement SectionHead(string text)
+  {
+    var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 24, 0, 8) };
+    row.Children.Add(new Rectangle { Width = 3, Height = 12, Fill = new SolidColorBrush(Theme.Amber), Margin = new Thickness(0, 0, 8, 0) });
+    row.Children.Add(new TextBlock { Text = text, FontSize = 12, Foreground = B(theme.Dim) });
+    return row;
+  }
+
+  TextBlock CheckRow(Check c)
+  {
+    var t = new TextBlock { Text = $"{c.Title}: {c.Status}", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 2), Foreground = B(theme.Text) };
+    if (c.Status == "fail") t.Foreground = B(theme.Bad);
+    else if (c.Status != "ok") t.Foreground = B(theme.Warn);
+    return t;
+  }
+
+  TextBlock Line(string text) => new() { Text = text, Foreground = B(theme.Sub), TextWrapping = TextWrapping.Wrap };
+
+  void Fill()
+  {
+    string health = Read.Health(glance);
+    healthLink.Text = health;
+    healthSentence.Text = health;
+    overviewSentence.Text = Read.Overview(glance);
+    northStar.Text = glance.NorthStar;
+    northStar.Visibility = glance.NorthStar.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    attention.Children.Clear();
+    attentionRows = 0;
+    if (!glance.DaemonUp) attention.Children.Add(Line("Nothing to list while Memev is not running."));
+    else if (glance.Look == 0) attention.Children.Add(Line("Nothing needs you."));
+    else
+      foreach (Check c in glance.Checks.Where((c) => c.Status != "ok")) { attention.Children.Add(CheckRow(c)); attentionRows++; }
+
+    checks.Children.Clear();
+    if (!glance.DaemonUp || glance.Checks.Count == 0) checks.Children.Add(Line("No checks were returned."));
+    else foreach (Check c in glance.Checks) checks.Children.Add(CheckRow(c));
+  }
+
+  // the core is read off the window's thread, and the window is filled on it
+  void Reload()
+  {
+    if (loading) return;
+    loading = true;
+    Task.Run(Read.Load).ContinueWith((t) =>
+    {
+      loading = false;
+      if (t.Status == TaskStatus.RanToCompletion) { glance = t.Result; Fill(); }
+    }, TaskScheduler.FromCurrentSynchronizationContext());
+  }
+
+  void Select(int index)
+  {
+    for (int i = 0; i < navButtons.Count; i++) navButtons[i].Background = i == index ? B(theme.Selected) : Brushes.Transparent;
+  }
+
+  void Page(StackPanel visible)
+  {
+    foreach (StackPanel p in new[] { overviewPage, healthPage, laterPage }) p.Visibility = p == visible ? Visibility.Visible : Visibility.Collapsed;
+  }
+
+  void ShowPage(int index)
+  {
+    Select(index);
+    NavItem item = Nav[index];
+    if (item.Kind == 0) { pageTitle.Text = "Executive overview"; Page(overviewPage); }
+    else { pageTitle.Text = item.Label; laterBody.Text = item.Later ?? ""; Page(laterPage); }
+  }
+
+  // Health is not a menu row; the link under the wordmark opens it
+  void ShowHealth() { Select(-1); pageTitle.Text = "Health"; Page(healthPage); }
+
+  void ShowHelp() { Select(-1); pageTitle.Text = "Help and support"; laterBody.Text = "Help and support is not in this slice. This app sends nothing."; Page(laterPage); }
+
+  static IEnumerable<DependencyObject> All(DependencyObject root)
+  {
+    yield return root;
+    foreach (object child in LogicalTreeHelper.GetChildren(root))
+      if (child is DependencyObject d) foreach (DependencyObject x in All(d)) yield return x;
+  }
+
+  void ReportAndQuit()
+  {
+    var nodes = All(this).ToList();
+    int primaries = nodes.OfType<Button>().Count((b) => (b.Tag as string) == "primary" && b.IsVisible);
+    int focusable = nodes.OfType<Button>().Count((b) => b.IsVisible && b.Focusable && b.IsEnabled);
+    var texts = nodes.OfType<TextBlock>().Select((t) => t.Text ?? "").ToList();
+    bool secret = texts.Any((t) => t.Contains("should-not-appear") || t.Contains("vault-marker"));
+    bool accel = InputBindings.OfType<KeyBinding>().Any((k) => k.Key == Key.R && k.Modifiers == ModifierKeys.Control && k.Command == RefreshCommand);
+    string health = Read.Health(glance), overview = Read.Overview(glance);
+    bool match = healthLink.Text == health && overviewSentence.Text == overview;
+    int w = (int)MinWidth, h = (int)MinHeight, sw = (int)Math.Round(sidebar.ActualWidth);
+    Program.Out($"health={healthLink.Text}");
+    Program.Out($"overview={overviewSentence.Text}");
+    Program.Out($"star={glance.NorthStar}");
+    Program.Out($"attention={attentionRows}");
+    Program.Out($"checks={checks.Children.Count}");
+    Program.Out($"primary={primaries}");
+    Program.Out($"minw={w}");
+    Program.Out($"minh={h}");
+    Program.Out($"sidebar={sw}");
+    Program.Out($"focusable={focusable}");
+    Program.Out($"accel={(accel ? 1 : 0)}");
+    Program.Out($"match={(match ? 1 : 0)}");
+    Program.Out($"secret={(secret ? "present" : "absent")}");
+    Program.Out($"visible={(IsVisible ? 1 : 0)}");
+    Program.Out($"theme={theme.Name}");
+    bool ok = match && primaries == 1 && w >= 1024 && h >= 700 && sw == 240 && focusable >= 9 && accel && !secret && IsVisible;
+    Environment.Exit(ok ? 0 : 1);
+  }
+}
