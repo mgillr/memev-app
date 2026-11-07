@@ -236,7 +236,7 @@ public static class Core
   // argument anyone can read in the process list.
   static ProcessStartInfo? Prepare(string bin, string[] args, IDictionary<string, string>? env)
   {
-    var psi = new ProcessStartInfo { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+    var psi = new ProcessStartInfo { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, StandardErrorEncoding = Encoding.UTF8 };
     string ext = Path.GetExtension(bin).ToLowerInvariant();
     if (Windows && (ext == ".cmd" || ext == ".bat"))
     {
