@@ -39,17 +39,37 @@ if grep -a -F -e "$needle" -e "$other" "$root/memev-desktop" >/dev/null; then
 fi
 plutil -lint "$root/Memev.app/Contents/Info.plist" >/dev/null
 
-# A live window with health checks off must hold no TCP socket other than loopback.
-MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark "$root/memev-desktop" >/dev/null 2>&1 &
+# A live window with health checks off must hold no TCP socket other than loopback. The window must still be running when its
+# sockets are read, or the check would pass on a process that is gone. MEMEV_DESKTOP_BIN replaces the binary for the test of this
+# guard (test/guard-check.sh).
+live=${MEMEV_DESKTOP_BIN:-$root/memev-desktop}
+list=$(mktemp)
+env -u MEMEV_SELF_CHECK -u MEMEV_SELF_CHECK_PNG MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark "$live" >/dev/null 2>&1 &
 pid=$!
 sleep 2
-lsof -nP -a -p "$pid" -iTCP > "${TMPDIR:-/tmp}/memev-desktop-lsof.txt" 2>/dev/null || true
-kill "$pid" 2>/dev/null || true
-wait "$pid" 2>/dev/null || true
-if grep -E "ESTABLISHED|SYN_SENT" "${TMPDIR:-/tmp}/memev-desktop-lsof.txt" | grep -v "127.0.0.1" | grep -v "\[::1\]" >/dev/null; then
-  echo "non-loopback socket" >&2
-  cat "${TMPDIR:-/tmp}/memev-desktop-lsof.txt" >&2
+if ! kill -0 "$pid" 2>/dev/null; then
+  wait "$pid" 2>/dev/null && code=0 || code=$?
+  echo "the window exited ($code) before its sockets were read" >&2
+  rm -f "$list"
   exit 1
 fi
+# lsof exits 1 when the process holds no TCP socket at all, which is a pass; any other failure is not.
+lsof -nP -a -p "$pid" -iTCP > "$list" 2>/dev/null && lrc=0 || lrc=$?
+alive=0
+kill -0 "$pid" 2>/dev/null && alive=1
+kill "$pid" 2>/dev/null || true
+wait "$pid" 2>/dev/null || true
+if [ "$alive" -ne 1 ] || [ "$lrc" -gt 1 ]; then
+  echo "the window's sockets could not be read (lsof $lrc, alive $alive)" >&2
+  rm -f "$list"
+  exit 1
+fi
+if grep -E "ESTABLISHED|SYN_SENT" "$list" | grep -v "127.0.0.1" | grep -v "\[::1\]" >/dev/null; then
+  echo "non-loopback socket" >&2
+  cat "$list" >&2
+  rm -f "$list"
+  exit 1
+fi
+rm -f "$list"
 
 echo "self-check passed"

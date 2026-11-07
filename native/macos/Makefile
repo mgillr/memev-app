@@ -39,6 +39,7 @@ app: Memev.app
 test: test-read memev-desktop Memev.app
 	cd ../linux && ../macos/test-read
 	./test/self-check.sh
+	./test/guard-check.sh
 
 clean:
 	rm -rf build memev-desktop test-read Memev.app
