@@ -161,9 +161,9 @@ final class SheetHost: NSView, Themed {
     mainButton = main
     otherButtons = Array(buttons.dropLast())
     addFull(hstack([spacer()] + buttons, spacing: 8), to: stack)
-    // A sheet has its own amber rule: its main button, never in a confirmation.
-    AmberRule.enforce(stack, stopped: false, noPrimary: m.confirm)
+    // A sheet has its own amber rule: its main button, never in a confirmation. The rule counts only what can be seen.
     isHidden = false
+    AmberRule.enforce(stack, stopped: false, noPrimary: m.confirm)
     repaintTree(self)
     returnFocus = window?.firstResponder
     // Tab stays inside: the sheet's controls form a closed loop.

@@ -430,15 +430,20 @@ final class NavButton: NSButton, Themed {
     applyTheme()
   }
 
+  private var painting = false
+
   override var title: String {
     get { super.title }
-    set { if newValue != super.title { text = newValue } }
+    set { if painting { super.title = newValue } else if newValue != text { text = newValue } }
   }
 
   /// Kept for the guide's choice buttons.
   func paint(_ t: Theme) { applyTheme() }
 
   func applyTheme() {
+    if painting { return }
+    painting = true
+    defer { painting = false }
     let style = NSMutableParagraphStyle()
     style.alignment = .left
     style.firstLineHeadIndent = 12 + indent

@@ -9,8 +9,13 @@ fix=$root/../linux/test/fixtures/memev
 for bin in "$root/memev-desktop" "$root/Memev.app/Contents/MacOS/memev-desktop"; do
   "$bin" --version | grep -F 'memev-desktop 0.0.1-slice1' >/dev/null
   for theme in dark light; do
-    out=$(MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=$theme MEMEV_GUIDE=off MEMEV_SELF_CHECK=1 "$bin")
+    # The window's own verdict is its exit code; its lines are printed first, so a failure shows which value was wrong.
+    out=$(MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=$theme MEMEV_GUIDE=off MEMEV_SELF_CHECK=1 "$bin" 2>&1) && rc=0 || rc=$?
     printf '%s\n' "$out"
+    if [ "$rc" -ne 0 ]; then
+      echo "the window's self-check exited $rc ($bin, $theme)" >&2
+      exit 1
+    fi
     for want in \
       'overview=Memev 0.1.0 is running for demo. 3 notes are in the index. 1 check to look at.' \
       'health=1 check to look at.' 'star=Ship the window' 'attention=1' 'checks=2' 'primary=1' \
@@ -47,8 +52,9 @@ for bin in "$root/memev-desktop" "$root/Memev.app/Contents/MacOS/memev-desktop";
   done
 done
 # The guided first launch: its first step, with Continue as the one filled button a person can see.
-guide=$(MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=1 MEMEV_SELF_CHECK=1 "$root/memev-desktop")
+guide=$(MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=1 MEMEV_SELF_CHECK=1 "$root/memev-desktop" 2>&1) && rc=0 || rc=$?
 printf '%s\n' "$guide"
+[ "$rc" -eq 0 ] || { echo "the guide's self-check exited $rc" >&2; exit 1; }
 for want in 'guide=Is this your first computer?' 'primary_label=Continue' 'primary=1' 'visible=1'; do
   printf '%s\n' "$guide" | grep -Fx "$want" >/dev/null || { echo "guide missing: $want" >&2; exit 1; }
 done
