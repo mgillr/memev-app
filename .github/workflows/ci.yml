@@ -69,3 +69,18 @@ jobs:
       - name: Prove the Windows first launch against that core
         shell: pwsh
         run: native/windows/test/real-core.ps1
+  installer-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the disk image
+        run: installers/macos/build.sh
+      - name: Install, start, read, stop and uninstall
+        run: make -C native/macos proof && MEMEV_PROOF=native/macos/proof installers/macos/test/install-check.sh installers/macos/dist/Memev-*.dmg

@@ -24,3 +24,26 @@ void memev_shim_health(const MemevGlance *g, char *out, int n);
 void memev_shim_overview(const MemevGlance *g, char *out, int n);
 
 #endif
+
+/* The guided first launch, through the shared guide (native/linux/src/guide.c). */
+#include "../../linux/src/guide.h"
+
+GuidePlan *memev_shim_plan_new(void);
+void memev_shim_plan_free(GuidePlan *p);
+void memev_shim_plan_set(GuidePlan *p, int first_computer, const char *notes_dir, const char *join_code, bool confirm_join,
+                         const char *backup_url, bool confirm_backup);
+void memev_shim_plan_select(GuidePlan *p, const char *const *names, int count);
+/* 0 when the plan builds; why holds the reason or a note. */
+int memev_shim_plan_check(const GuidePlan *p, char *why, int whyn);
+/* Runs the plan with the resolved memev command. 0 on success; detail holds what the core said. */
+int memev_shim_plan_apply(const GuidePlan *p, char *detail, int detailn);
+
+/* The core's client list, read once. Returns the count, -1 when it could not be read. */
+int memev_shim_clients_load(void);
+const char *memev_shim_client_name(int i);
+const char *memev_shim_client_state(int i);
+bool memev_shim_client_selectable(int i);
+
+/* The first-launch marker: MEMEV_GUIDE=1 or off forces it, else it shows until the marker file exists. */
+bool memev_shim_want_guide(void);
+void memev_shim_guide_done(void);

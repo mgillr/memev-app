@@ -111,6 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   var sectionLabels: [NSTextField] = []
   var rules: [NSView] = []
   var refreshItem: NSMenuItem!
+  var guide: GuideController!
+  var inGuide = false
 
   func applicationDidFinishLaunching(_ note: Notification) {
     let env = ProcessInfo.processInfo.environment
@@ -124,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     memev_shim_load(glance)
     paint()
     fill()
-    showPage(0)
+    if memev_shim_want_guide() { guide.show(0) } else { showPage(0) }
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     if selfCheck {
@@ -272,13 +274,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     overviewView = column([overviewSentence, northStar, sectionHead("STATUS"), attention, overviewNote], spacing: 24)
     healthView = column([healthSentence, sectionHead("CHECKS"), checks], spacing: 24)
     laterView = column([laterBody], spacing: 16)
+    guide = GuideController(owner: self)
 
     pageStack.orientation = .vertical
     pageStack.alignment = .leading
     pageStack.spacing = 24
     pageStack.edgeInsets = NSEdgeInsets(top: 24, left: 36, bottom: 24, right: 36)
     pageStack.translatesAutoresizingMaskIntoConstraints = false
-    for v in [header, overviewView!, healthView!, laterView!] as [NSView] {
+    for v in [header, overviewView!, healthView!, laterView!, guide.view] as [NSView] {
       pageStack.addArrangedSubview(v)
       v.widthAnchor.constraint(equalTo: pageStack.widthAnchor, constant: -72).isActive = true
     }
@@ -388,15 +391,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func show(_ view: NSStackView, title: String) {
     pageTitle.stringValue = title
-    for v in [overviewView!, healthView!, laterView!] { v.isHidden = v !== view }
+    for v in [overviewView!, healthView!, laterView!, guide.view] { v.isHidden = v !== view }
   }
 
   func select(_ index: Int) {
     for (i, b) in navButtons.enumerated() { b.selectedState = i == index; b.paint(palette) }
   }
 
+  func showGuide() { show(guide.view, title: pageTitle.stringValue) }
+
+  func setPrimary(_ title: String) {
+    primary.title = title
+    primary.attributedTitle = NSAttributedString(string: title, attributes: [.foregroundColor: Palette.onAmber, .font: NSFont.systemFont(ofSize: 13, weight: .medium)])
+  }
+
+  // Leaving the guide for a page ends it for this run; it shows again at the next start until it is finished.
+  func leaveGuide() {
+    if inGuide { inGuide = false; setPrimary("Refresh") }
+  }
+
   func showPage(_ index: Int) {
     guard index >= 0 && index < NAV.count else { return }
+    leaveGuide()
     select(index)
     let item = NAV[index]
     if item.kind == 0 {
@@ -411,17 +427,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   // Health is not a menu row. It opens the health page directly.
   @objc func healthClicked(_ sender: NSButton) {
+    leaveGuide()
     select(-1)
     show(healthView, title: "Health")
   }
 
   @objc func helpClicked(_ sender: NSButton) {
+    leaveGuide()
     select(-1)
     laterBody.stringValue = "Help and support is not in this slice. This app sends nothing."
     show(laterView, title: "Help and support")
   }
 
-  @objc func refreshClicked(_ sender: Any?) { reload() }
+  @objc func refreshClicked(_ sender: Any?) { if inGuide { guide.next() } else { reload() } }
 
   // The core is read off the main thread; the window is filled on it.
   func reload() {
@@ -437,6 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.loading = false
         self.paint()
         self.fill()
+        if self.inGuide { self.guide.paint(self.palette) }
       }
     }
   }
@@ -481,6 +500,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     print("secret=\(secret ? "present" : "absent")")
     print("theme=\(palette.background == Palette.dark.background ? "dark" : "light")")
     print("visible=\(window.isVisible ? 1 : 0)")
+    if inGuide {
+      print("guide=\(pageTitle.stringValue)")
+      print("primary_label=\(primary.title)")
+    }
     // A picture of the window for a reviewer, printed and never written to a file, only when asked for.
     if ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_PNG"] != nil, let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) {
       root.cacheDisplay(in: root.bounds, to: rep)
