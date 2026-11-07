@@ -50,7 +50,7 @@ foreach ($theme in 'dark', 'light') {
     'screen=health|Health|', 'amber_max=1', 'amber_ring=1', 'confirm_amber=0', 'confirm_main=red', 'sheet_amber=1', 'sheet_ring=1',
     'start_sheet=Start Memev?|Start Memev', 'reads=6', 'font_sans=Space Grotesk', 'font_mono=IBM Plex Mono',
     'connect_read=ok', 'connect_apps=5', 'connect_ticked=2', 'connect_connected=1', 'connect_manual=1', 'connect_notfound=2',
-    'agents_read=ok', 'agents_rows=2', 'confirms=14', 'sheets_ok=1', 'verdict=pass',
+    'agents_read=ok', 'agents_rows=2', 'import_read=ok', 'import_sources=3', 'import_marked=1', 'sheet=import_confirm|Import Claude Code?|Import|amber=1|main=amber', 'confirms=14', 'sheets_ok=1', 'verdict=pass',
     'sheet=connect|Connect 2 AI apps?|Connect|amber=1|main=amber', 'sheet=disconnect|Disconnect Claude Code?|Disconnect|amber=0|main=red',
     'sheet=agents|Add background agents|Start|amber=1|main=amber', 'sheet=agents_stop|Stop the background agents for claude-code/2?|Stop|amber=0|main=red',
     'sheet=import|Import||amber=0|main=none', 'sheet=import_undo|Undo import import-1?|Undo import|amber=0|main=red')
@@ -72,7 +72,7 @@ foreach ($w in 'guide=Is this your first computer?', 'primary_label=Continue', '
 if ($g.Code -ne 0) { throw "the guide self-check exited $($g.Code)" }
 
 # The three questions after the note check, in order, each with Skip and one filled button.
-$steps = @{ connect = @('guide=Connect your AI apps', 'primary_label=Connect 2 apps', 'guide_rows=5'); import = @('guide=Bring in your existing AI chat history?', 'primary_label=Look at what is there'); lead = @('guide=Which app should lead?', 'primary_label=Finish') }
+$steps = @{ connect = @('guide=Connect your AI apps', 'primary_label=Connect 2 apps', 'guide_rows=5'); import = @('guide=Bring in your existing AI chat history?', 'primary_label=Import 1 source', 'guide_rows=3'); lead = @('guide=Which app should lead?', 'primary_label=Finish') }
 foreach ($s in 'connect', 'import', 'lead') {
   $g = Invoke-Window @{ MEMEV_BIN = $fix; MEMEV_HEALTH_URL = 'off'; MEMEV_THEME = 'light'; MEMEV_GUIDE = '1'; MEMEV_SELF_CHECK = '1'; MEMEV_SELF_CHECK_GUIDE_STEP = $s } @()
   $g.Lines | ForEach-Object { Write-Output $_ }

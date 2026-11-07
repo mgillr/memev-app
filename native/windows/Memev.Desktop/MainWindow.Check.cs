@@ -85,6 +85,7 @@ sealed partial class MainWindow
 
     // Every screen's read, then every screen and tab, with the most amber buttons a person can see on any one of them (SH-20).
     foreach (string id in DataScreens) await LoadPage(id);
+    await LoadScan();
     int most = 0;
     var texts = new List<string>();
     foreach (ScreenDef d in Screens.Nav.Append(Screens.Health))
@@ -145,6 +146,10 @@ sealed partial class MainWindow
     if (bots.Runners.FirstOrDefault((r) => r.Enabled) is RunnerRow rr) { var c = await Sheet("agents_stop", () => StopAgentsSheet(rr.Seat)); sheetsOk &= c.Amber == 0 && c.Main == "red"; }
     var imp = await Sheet("import", ImportSheet);
     sheetsOk &= imp.Amber == 0 && imp.Main == "none";
+    Out($"import_read={(scanRead ? "ok" : "fail")}");
+    Out($"import_sources={scanSources.Count}");
+    Out($"import_marked={ImportTicked().Count}");
+    if (ImportTicked().Count > 0) { var ic = await Sheet("import_confirm", () => ConfirmImport(ImportTicked(), null)); sheetsOk &= ic.Amber == 1 && ic.Ring; }
     var undo = await Sheet("import_undo", () => UndoSheet("import-1"));
     sheetsOk &= undo.Amber == 0 && undo.Main == "red";
     foreach (ConfirmKind k in Enum.GetValues<ConfirmKind>())

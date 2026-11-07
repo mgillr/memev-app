@@ -26,8 +26,12 @@ if not "%~2"=="status" exit /b 2
 type "%~dp0runner.json"
 exit /b 0
 :import
+if "%~2"=="scan" goto scan
 if not "%~2"=="list" exit /b 2
 type "%~dp0import-list.txt"
+exit /b 0
+:scan
+type "%~dp0import-scan.json"
 exit /b 0
 :chat
 if not "%~2"=="status" exit /b 2

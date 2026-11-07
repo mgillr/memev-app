@@ -139,8 +139,9 @@ sealed partial class MainWindow
         break;
       case StepImport:
         guideTitle = "Bring in your existing AI chat history?";
-        guideText.Text = "Memev can look at the history your AI apps keep on this computer and show you what it would bring in. Nothing is kept until you say so, and an import can be undone. For a ChatGPT or Claude export file, use Memory, Search, Import later.";
-        primary.Text = "Look at what is there";
+        guideText.Text = "Memev found the history your AI apps keep on this computer. The ticked ones are brought in after one sheet that confirms them; it runs in the background, and an import can be undone. For a ChatGPT or Claude export file, use Memory, Search, Import later.";
+        guideRows.Visibility = Visibility.Visible;
+        GuideLoadScan();
         break;
       case StepLead:
         guideTitle = "Which app should lead?";
@@ -284,11 +285,13 @@ sealed partial class MainWindow
         GuideShow(StepImport);
         return;
       case StepImport:
-        ImportSheetFromGuide();
-        GuideShow(StepLead);
+        if (ImportTicked().Count > 0) ConfirmImport(ImportTicked(), () => GuideShow(StepLead));
+        else GuideShow(StepLead);
         return;
       default:
         if (leadPick.Length == 0) { GuideFinish(); return; }
+        // the import stops Memev while it runs, and choosing the lead needs Memev running
+        if (importRunning) { guideDetail.Text = "The import is still running. Choose the lead when it is done, or skip this and choose it later."; return; }
         string seat = leadPick;
         GuideFinish();
         Present(new SheetModel
@@ -304,13 +307,6 @@ sealed partial class MainWindow
         });
         return;
     }
-  }
-
-  /// The setup step's import: AI app history on this computer, previewed in a sheet first.
-  void ImportSheetFromGuide()
-  {
-    Present(new SheetModel { Title = "Import", Note = "Looking at your AI app history. Nothing is kept until you say so.", Source = "memev import --ai-history --preview" });
-    ImportPreview(new[] { "--ai-history" }, "your AI app history");
   }
 
   void GuideSkip()

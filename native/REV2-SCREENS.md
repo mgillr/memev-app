@@ -865,7 +865,7 @@ These are not missing core commands. They are places where the design and this r
 
 ## 5. Addendum, 7 Nov 2026: three screens the owner asked for after the map was written
 
-These follow the rev2 visual language of section 1: the section label, lists on `panel`, the one amber button, form sheets with an amber main button, and confirmation sheets with a red main button. The sources are the commands of the trial core at memev `ceb322f853488ee83162a5d6b39169243bb7ace7` (branch `trial/windows-20261107`). Where that core has no command, the element says so; nothing is a sample figure.
+These follow the rev2 visual language of section 1: the section label, lists on `panel`, the one amber button, form sheets with an amber main button, and confirmation sheets with a red main button. The sources are the commands of the trial core on branch `trial/windows-20261107`, pinned in the installers at `8520a874d1159054bea7e51b310ed415a29c629e`. Where that core has no command, the element says so; nothing is a sample figure.
 
 The guided first launch keeps its first steps (this computer or another, the notes folder, the backup remote, the check that a note comes back). After the check it asks three more things, in this order, and each one has a "Skip" button: connect your AI apps (5.1), bring in your chat history (5.2), and choose the lead (5.4). Skipping changes nothing. A computer that joined another computer's memory skips all three, because its memory lives on the other computer.
 
@@ -884,15 +884,17 @@ The guided first launch keeps its first steps (this computer or another, the not
 
 ### 5.2 Import history
 
-- Setup asks once, after the note check: "Bring in your existing AI chat history?" with "Look at what is there" (amber) and "Skip".
-- The Import sheet (MEM-S2) is built, and opens from Memory, Search, page action "Import", and from the Overview's first-run empty state. Rows:
-  - "AI app history on this computer", "previewed before anything is kept", button "Preview".
-  - "A chat export (.zip)", "from ChatGPT or Claude: their export file", button "Choose". A file picker for `.zip` files.
-  - "Earlier imports", "each can be undone", button "Undo" per import.
-- Preview: `import --ai-history --preview` or `import --export FILE.zip --preview`. The core prints its preview as text; the app shows it in a sheet, "Keep these <n> items?", with main button "Import" (amber). Pressing it runs the same command with `--yes`. The core stops Memev for the moment of a preview or an import and starts it again, so the stopped banner can show for a second.
-- Undo: `import list` gives each import's id; the confirmation sheet "Undo import <id>?" ("Everything that import brought in leaves your memory.", main "Undo import", red) runs `import undo <id>`.
-- A file name that holds `" % ! & | < > ^ ( )` is refused before it reaches the core, as every typed argument is (for example `export (1).zip`); the sheet says so and asks for a copy with a plain name.
-- `import scan --json` is being built on the core's branch `core/history-import`. It is not in the trial core. When it lands, the preview becomes a list of items with ticks.
+The trial core at `8520a874d1159054bea7e51b310ed415a29c629e` has the history scan (`docs/IMPORT.md` in the core).
+
+- Setup asks once, after the note check: "Bring in your existing AI chat history?" It lists every source `import scan --json` finds, each with a tick box, the app's name, and a second line with its count ("42 sessions", or "not counted yet" when the core did not count it), its size, its first and last dates, how many projects it spans, and where it is (the person's own path, shortened with ~). A source the core marks (`marked`, 100 items or fewer) is ticked; the rest are not. The main button reads "Import <n> sources" (amber), or "Continue" with nothing ticked; "Skip" moves on.
+  - Src: `import scan --json`: `sources[]` with `id`, `app`, `kind` (`files`, `sessions`, `export`), `path`, `count` (or `null`), `bytes`, `first`, `last`, `marked`, `projects`. The scan imports nothing, needs no vault and does not stop Memev.
+- One confirmation sheet, "Import <n> sources?" (or "Import <app>?" for one), names each chosen source with its line, and says what happens: one note per conversation, nothing leaves the computer, no AI model is used, Memev stops while it imports and starts again, a large history takes minutes, and it can be undone. Main "Import" (amber).
+  - Act: `import --source ID --source ID ... --yes`.
+- The import runs in the background. A sheet shows a moving bar and the time so far; it can be closed, and the top bar's status line keeps the time until the import ends. The core prints no progress of its own, so the bar does not claim a share. At the end a sheet says "Imported <n> items" (from the core's "Imported <n> item(s) as <id>") with "Undo this import", or the core's answer when it did not finish.
+- The Import sheet (MEM-S2) opens from Memory, Search, page action "Import". Rows: "Your AI apps' history on this computer" ("Choose": the same list in a sheet, then the same confirmation), "A chat export (.zip)" ("Choose": a file picker for a ChatGPT or Claude export, then `import --export FILE --preview` shown as the core's text and `--yes` after "Import"), "Earlier imports" ("List": `import list`, each with "Undo").
+- Undo: the confirmation sheet "Undo import <id>?" ("Everything that import brought in leaves your memory.", main "Undo import", red) runs `import undo <id>`.
+- A path that holds `" % ! & | < > ^ ( )` is refused before it reaches the core, as every argument to a `.cmd` core is; the sheet says so.
+- Setup's lead question waits while an import runs, because the import stops Memev and choosing the lead needs it running.
 
 ### 5.3 Bots and agents, a new tab "Background agents"
 
@@ -933,4 +935,4 @@ The trial core at `ceb322f853488ee83162a5d6b39169243bb7ace7` carries the chat br
 
 ### 5.5 What the window may run, added to CLI-CONTRACT.md
 
-`onboarding --json`, `runner status --json`, `import list` and `chat status --json` as reads; `connect <id>...`, `disconnect <id>`, `import --ai-history|--export FILE --preview`, the same with `--yes`, `import undo <id>`, `runner on <app> --agents N --max-runs-per-day M`, `runner off <seat>`, `bus operator <seat>`, and the `chat` commands of 5.6, each only after its sheet.
+`onboarding --json`, `runner status --json`, `import scan --json`, `import list` and `chat status --json` as reads; `connect <id>...`, `disconnect <id>`, `import --source ID ... --yes`, `import --export FILE --preview` and the same with `--yes`, `import undo <id>`, `runner on <app> --agents N --max-runs-per-day M`, `runner off <seat>`, `bus operator <seat>`, and the `chat` commands of 5.6, each only after its sheet.

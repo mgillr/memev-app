@@ -492,15 +492,15 @@ sealed partial class MainWindow
   void ImportSheet()
   {
     var rows = new ListBoxView();
-    rows.Add(new RowView(null, "AI app history on this computer", "previewed before anything is kept",
-      button: new MButton("Preview", ButtonStyleKind.Secondary, onPress: () => ImportPreview(new[] { "--ai-history" }, "your AI app history"))));
+    rows.Add(new RowView(null, "Your AI apps' history on this computer", "each app's sessions, with their count, size and dates; you pick what comes in",
+      button: new MButton("Choose", ButtonStyleKind.Secondary, onPress: ScanSheet)));
     rows.Add(new RowView(null, "A chat export (.zip)", "from ChatGPT or Claude: their export file", button: new MButton("Choose", ButtonStyleKind.Secondary, onPress: ChooseExport)));
     rows.Add(new RowView(null, "Earlier imports", "each can be undone", button: new MButton("List", ButtonStyleKind.Secondary, onPress: ImportList)));
     Present(new SheetModel
     {
       Title = "Import",
-      Note = "Everything is previewed before anything is kept, and each import can be undone. Memev stops for a moment while it looks, then starts again.",
-      Fields = { rows }, Source = "memev import --ai-history --preview · memev import --export FILE.zip --preview · memev import list",
+      Note = "Nothing is kept until you confirm it, and each import can be undone.",
+      Fields = { rows }, Source = "memev import scan --json · memev import --export FILE.zip --preview · memev import list",
     });
   }
 

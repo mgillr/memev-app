@@ -18,8 +18,10 @@ The command is `MEMEV_BIN`, or `memev` on `PATH`. The window passes arguments in
 | The Connect tab, the Background agents tab and setup | `onboarding --json`, `runner status --json`, `bus roster --json` | Read. `onboarding --json` is the one output of the trial core that names each app's id (its items' `app`); it also rewrites the checklist file and registers the seats of apps already connected, and starts nothing (REV2-SCREENS.md 5.1) |
 | Connect, after its sheet names the apps | `connect ID ID ...` | Only ids the core printed in `onboarding --json`, only the rows the person ticked. Never `connect` with no app, never `connect all` |
 | Disconnect, after its sheet | `disconnect ID` | An id from `onboarding --json` |
-| Import history | `import --ai-history --preview`, `import --export FILE --preview`, `import list` | The person pressed Preview, Choose or List. The core stops Memev for the moment of each and starts it again |
-| Import, after its sheet shows the preview | the same command with `--yes` | The person pressed Import in the sheet that showed what is kept |
+| Import history | `import scan --json` | Read. It imports nothing, needs no vault and does not stop Memev |
+| Import, after its confirmation sheet names the sources | `import --source ID --source ID ... --yes` | Only ids `import scan --json` printed, only the ticked ones. It runs in the background; the core stops Memev while it imports |
+| A chat export, and earlier imports | `import --export FILE --preview`, `import list` | The person pressed Choose or List. The core stops Memev for the moment of each and starts it again |
+| An export, after its sheet shows the preview | `import --export FILE --yes` | The person pressed Import in the sheet that showed what is kept |
 | Undo an import, after its sheet | `import undo ID` | An id `import list` printed |
 | Background agents, after their sheet | `runner on APP --agents N --max-runs-per-day M`, `runner off SEAT` | N from 1 to 20; the daily limit is required, a whole number of 1 or more |
 | Choose the lead, in setup, after its sheet | `bus operator SEAT` | A seat `bus roster --json` printed |

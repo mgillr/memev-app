@@ -1,0 +1,5 @@
+{"sources":[
+ {"id":"claude-code","app":"Claude Code","kind":"sessions","path":"C:\\Users\\fixture\\.claude\\projects","unit":"sessions","count":42,"bytes":3145728,"first":"2026-09-01T10:00:00.000Z","last":"2026-11-06T18:30:00.000Z","marked":true,"projects":[{"id":"claude-code/-a"},{"id":"claude-code/-b"}]},
+ {"id":"codex","app":"Codex CLI","kind":"sessions","path":"~\\.codex\\sessions","unit":"sessions","count":300,"bytes":52428800,"first":"2026-05-02T09:00:00.000Z","last":"2026-11-07T08:00:00.000Z","marked":false},
+ {"id":"export:C:\\Users\\fixture\\Downloads\\chatgpt-export.zip","app":"ChatGPT export","kind":"export","path":"~\\Downloads\\chatgpt-export.zip","unit":"conversations","count":null,"bytes":10485760,"first":null,"last":null,"marked":false,"token":"should-not-appear"}
+],"mark_max":100}
