@@ -496,7 +496,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func reportPage(_ id: String, _ sections: [PageSection]) {
     print("page=\(id)")
-    for s in sections { print("section=\(s.head) rows=\(s.rows.count)"); for r in s.rows.prefix(5) { print("row=\(r.title)") } }
+    for s in sections {
+      print("section=\(s.head) rows=\(s.rows.count)")
+      if s.rows.isEmpty { print("empty=\(s.empty)") }
+      for r in s.rows.prefix(5) { print("row=\(r.title)") }
+    }
     var texts: [String] = []
     walk(window.contentView!) { v in if let f = v as? NSTextField { texts.append(f.stringValue) } }
     let leak = texts.contains { $0.contains("/Users/") || $0.contains("/var/folders/") || $0.contains("should-not-appear") }

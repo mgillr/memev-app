@@ -39,8 +39,12 @@ if [ "${MEMEV_SKIP_WINDOW:-}" != 1 ]; then
       MEMEV_SELF_CHECK_QUERY="window reads" "$app/Contents/MacOS/memev-desktop") || { printf '%s\n' "$pout" >&2; echo "page $page failed" >&2; exit 1; }
     printf '%s\n' "$pout"
     printf '%s\n' "$pout" | grep -Fx "page=$page" >/dev/null && printf '%s\n' "$pout" | grep -Fx 'leak=absent' >/dev/null || { echo "page $page: bad report" >&2; exit 1; }
-    if printf '%s\n' "$pout" | grep -E '^row=' | grep -Ei 'did not answer' >/dev/null; then echo "page $page: a command did not answer" >&2; exit 1; fi
+    if printf '%s\n' "$pout" | grep -E '^(row|empty)=' | grep -Ei 'did not answer|could not be read' >/dev/null; then echo "page $page: a command did not answer" >&2; exit 1; fi
   done
+  # The page check must be able to fail: against a memev that always fails, every section says it did not answer.
+  printf '#!/bin/sh\nexit 1\n' > "$t/broken-memev"; chmod +x "$t/broken-memev"
+  bad=$(MEMEV_BIN="$t/broken-memev" MEMEV_GUIDE=off MEMEV_HEALTH_URL=off MEMEV_SELF_CHECK=1 MEMEV_SELF_CHECK_PAGE=checked "$app/Contents/MacOS/memev-desktop" || true)
+  printf '%s\n' "$bad" | grep -E '^empty=.*did not answer' >/dev/null || { printf '%s\n' "$bad" >&2; echo "a failing core was not reported on the page" >&2; exit 1; }
   printf '%s\n' "$(MEMEV_GUIDE=off MEMEV_HEALTH_URL=off MEMEV_SELF_CHECK=1 MEMEV_SELF_CHECK_PAGE=memory MEMEV_SELF_CHECK_QUERY="window reads" "$app/Contents/MacOS/memev-desktop")" | grep -F 'row=the window reads this note' >/dev/null || { echo "memory search did not find the saved note" >&2; exit 1; }
 fi
 "$bin" stop > /dev/null 2>&1 || true

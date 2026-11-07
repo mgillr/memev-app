@@ -73,27 +73,33 @@ enum Pages {
     guard let r = memevJSON(["contract", "list"]) as? [String: Any], let list = r["contracts"] as? [[String: Any]] else {
       return [PageSection(head: "CONTRACTS", rows: [], empty: "The contract list did not answer.")]
     }
+    // contracts.mjs contractList(): state is done (its verify passed, with a receipt), open (signed, not verified yet), superseded or draft
+    let words = ["done": "checked: its verify passed", "open": "signed, not checked yet", "superseded": "replaced by a newer version", "draft": "a draft, not signed"]
     return [PageSection(head: "CONTRACTS", rows: list.map { c in
-      let status = str(c["status"])
-      let receipt = (c["receipt"] != nil || c["verified"] as? Bool == true) ? "receipt" : "no receipt yet"
-      return PageRow(title: str(c["title"]), sub: "\(status) · \(receipt)", tone: status.contains("fail") ? 2 : 0)
+      let state = str(c["state"])
+      let v = str(c["version"])
+      return PageRow(title: str(c["title"]) + (v.isEmpty || v == "1" ? "" : " (version \(v))"), sub: words[state] ?? state, tone: state == "open" || state == "draft" ? 1 : 0)
     }, empty: "No contracts yet.")]
   }
 
   static func bots() -> [PageSection] {
     var out: [PageSection] = []
     if let r = memevJSON(["bus", "roster", "--json"]) as? [String: Any] {
+      // bus.mjs roster(): a row is a seat, or a computer with no app yet (seat null); state is live, stale, never joined or removed
       let seats = (r["seats"] as? [[String: Any]]) ?? []
-      var rows = seats.map { s in
-        PageRow(title: str(s["name"] ?? s["seat"]), sub: [str(s["client"] ?? s["app"]), (s["live"] as? Bool == true) ? "seen recently" : "not seen recently"].filter { !$0.isEmpty }.joined(separator: " · "), tone: 0)
+      let states = ["live": "here now", "stale": "not seen recently", "never joined": "has not opened a session yet", "removed": "removed"]
+      var rows = seats.map { s -> PageRow in
+        let seat = str(s["seat"]), state = str(s["state"])
+        let title = seat.isEmpty ? str(s["device_label"]) : seat
+        let sub = seat.isEmpty ? "a computer with no AI app on it yet" : [s["operator"] as? Bool == true ? "the lead" : "", states[state] ?? state].filter { !$0.isEmpty }.joined(separator: " · ")
+        return PageRow(title: title, sub: sub, tone: state == "live" || seat.isEmpty ? 0 : state == "removed" ? 2 : 1)
       }
-      let op = str(r["operator"])
-      if !op.isEmpty { rows.insert(PageRow(title: "Lead: \(op)", sub: "", tone: 0), at: 0) }
-      else if let need = r["lead_needed"] as? String { rows.insert(PageRow(title: "No lead is set.", sub: need, tone: 1), at: 0) }
+      if str(r["operator"]).isEmpty { rows.insert(PageRow(title: "No lead is set.", sub: "Choose which AI leads and coordinates the others.", tone: 1), at: 0) }
       out.append(PageSection(head: "TEAM", rows: rows, empty: "No seats yet."))
     } else { out.append(PageSection(head: "TEAM", rows: [], empty: "The roster did not answer.")) }
     if let r = memevJSON(["devices", "list", "--json"]) as? [String: Any], let devs = r["devices"] as? [[String: Any]] {
-      let kinds = ["host": "this computer", "local-client": "an app on this computer", "remote": "another computer"]
+      // devices.mjs KINDS
+      let kinds = ["host": "this computer", "local-client": "an app on this computer", "remote-computer": "another computer", "cloud-connector": "a web app"]
       out.append(PageSection(head: "COMPUTERS AND APPS", rows: devs.map { d in
         PageRow(title: str(d["label"]), sub: "\(kinds[str(d["kind"])] ?? str(d["kind"])) · \(str(d["status"]))", tone: str(d["status"]) == "active" ? 0 : 1)
       }, empty: "No computers or apps yet."))
