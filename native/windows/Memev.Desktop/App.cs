@@ -31,6 +31,10 @@ static class Program
       Out("memev-desktop 0.0.1-slice1");
       return 0;
     }
+    // An installed app carries its own core: use it unless MEMEV_BIN names another.
+    string bundled = System.IO.Path.Combine(AppContext.BaseDirectory, "resources", "bin", "memev.cmd");
+    if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MEMEV_BIN")) && File.Exists(bundled))
+      Environment.SetEnvironmentVariable("MEMEV_BIN", bundled);
     var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
     return app.Run(new MainWindow());
   }
