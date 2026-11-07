@@ -70,6 +70,12 @@ static class Screens
         ("Access key", "What lets one bot reach your memory. Each bot has its own, and you can revoke it."),
         ("Secure link", "The private route that lets AI apps on the web and your other computers reach this one. Off until you switch it on."),
       } },
+    new() { Id = "chats", Menu = "Chats", Title = "Chats", Sentences = new() { [""] = "Reading Memev." }, Words = new[]
+    {
+      ("Chat channel", "A phone chat that reaches your lead: Telegram, WhatsApp, or the z.ai route through Discord or Lark. Each is off until you turn it on."),
+      ("Pairing", "Telling Memev which one person, or which one chat, may reach the lead. Anyone else gets no answer."),
+      ("Linked device", "How WhatsApp lets a computer use your account, as WhatsApp on a computer does. You can remove it on your phone at any time."),
+    } },
     new() { Id = "memory", Menu = "Memory", Title = "Memory",
       Tabs = new[] { T("search", "Search"), T("review", "Review"), T("browse", "Browse"), T("history", "History"), T("health", "Health") },
       Sentences = new()

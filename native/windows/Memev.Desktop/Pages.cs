@@ -16,11 +16,11 @@ namespace Memev.Desktop;
 static class CoreCall
 {
   /// (exit code, stdout). -1 when the core could not be found or did not answer in time; 126 when an argument was refused.
-  public static (int Code, string Output) Run(string[] args, int timeoutMs = 10000)
+  public static (int Code, string Output) Run(string[] args, int timeoutMs = 10000, IDictionary<string, string>? env = null)
   {
     string? bin = Core.ResolveBin();
     if (bin == null) return (-1, "");
-    var r = Core.Capture(bin, args, timeoutMs);
+    var r = Core.Capture(bin, args, timeoutMs, env);
     return r.Done ? (r.ExitCode, r.Output) : (-1, "");
   }
 
@@ -158,6 +158,8 @@ sealed class PageData
   public List<RunnerRow> Runners = new();
   public bool RunnersRead;
   public List<SeatRow> Seats = new();
+  public List<ChatRow> Chats = new();
+  public bool ChatsRead;
 }
 
 static class Pages
@@ -204,6 +206,17 @@ static class Pages
         Rows = { new PageRow($"{J.Str(a["memories"])} memories, {J.Str(a["likely_junk"])} likely junk", Paths.Show(J.Str(a["next"])), 0) } });
     else d.Sections.Add(new PageSection { Head = "CLEAN-UP", Empty = "The clean-up report did not answer.", Tab = "review", Source = "memev audit --json" });
     return d;
+  }
+
+  public static PageData ChatPage()
+  {
+    var (rows, read) = Memev.Desktop.Chats.Read();
+    int on = rows.Count((c) => c.On);
+    return new PageData
+    {
+      Chats = rows, ChatsRead = read,
+      Sentences = { [""] = !read ? "The chat status did not answer." : on == 0 ? "Every chat channel is off. Each one stays off until you turn it on." : $"{on} of {rows.Count} chat channels {(on == 1 ? "is" : "are")} on." },
+    };
   }
 
   public static PageData Checked()

@@ -274,7 +274,7 @@ sealed partial class MainWindow : Window
     Reload(then);
   }
 
-  static readonly string[] DataScreens = { "projects", "bots", "memory", "checked", "settings" };
+  static readonly string[] DataScreens = { "projects", "bots", "chats", "memory", "checked", "settings" };
 
   /// A page reads the core off the window's thread; a newer load replaces an older one that ends later.
   Task LoadPage(string id)
@@ -288,6 +288,7 @@ sealed partial class MainWindow : Window
       "memory" => Pages.Memory(query),
       "checked" => Pages.Checked(),
       "bots" => Pages.Bots(),
+      "chats" => Pages.ChatPage(),
       "projects" => Pages.Projects(project, ""),
       _ => Pages.Settings(theme),
     }).ContinueWith((t) =>
@@ -755,16 +756,16 @@ sealed partial class MainWindow : Window
   }
 
   /// Runs one change after its sheet: the sheet says it is working, shows the core's answer, then calls done on this thread.
-  void RunInSheet(SheetHost host, string working, string[] args, int timeoutMs, Action<int, string> done)
+  void RunInSheet(SheetHost host, string working, string[] args, int timeoutMs, Action<int, string> done, IDictionary<string, string>? env = null, bool raw = false)
   {
     host.Status.Text = working;
     if (host.MainButton != null) host.MainButton.IsEnabled = false;
     foreach (MButton b in host.OtherButtons) b.IsEnabled = false;
     statusLine.Text = working;
-    Task.Run(() => CoreCall.Run(args, timeoutMs)).ContinueWith((t) =>
+    Task.Run(() => CoreCall.Run(args, timeoutMs, env)).ContinueWith((t) =>
     {
       var (code, output) = t.Status == TaskStatus.RanToCompletion ? t.Result : (-1, "");
-      done(code, code == 126 ? "" : Pages.Answer(output));
+      done(code, code == 126 ? "" : raw ? output : Pages.Answer(output));
     }, TaskScheduler.FromCurrentSynchronizationContext());
   }
 
