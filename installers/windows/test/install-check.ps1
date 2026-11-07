@@ -67,3 +67,5 @@ if ($left.Count -gt 0) { $left | Format-Table Id, Path | Out-String | Write-Outp
 if (Test-Path $exe) { throw 'the window is still installed after uninstall' }
 if (-not (Test-Path $notes)) { throw 'the notes folder was not kept' }
 Write-Output 'install check passed'
+# the last native command here is a check meant to fail (no remote), and its code would otherwise become the script's
+exit 0
