@@ -178,7 +178,7 @@ static class Pages
     if (query.Trim().Length > 0)
     {
       string[] words = query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-      var hits = CoreCall.Json(new[] { "recall" }.Concat(words).Append("--json").ToArray()) as JsonArray;
+      var hits = CoreCall.JsonIfRunning(new[] { "recall" }.Concat(words).Append("--json").ToArray()) as JsonArray;
       var sec = new PageSection { Head = "SEARCH", Empty = hits == null ? "The search did not answer." : "Nothing matched.", Tab = "search", Source = recall };
       if (hits != null)
         foreach (JsonObject h in hits.OfType<JsonObject>().Take(20))
@@ -189,7 +189,7 @@ static class Pages
       d.Sections.Add(sec);
     }
     const string review = "memev review list --json";
-    if (CoreCall.Json(new[] { "review", "list", "--json" }) is JsonObject r && r["inbox"] is JsonArray inbox)
+    if (CoreCall.JsonIfRunning(new[] { "review", "list", "--json" }) is JsonObject r && r["inbox"] is JsonArray inbox)
     {
       var sec = new PageSection { Head = "REVIEW", Empty = "Nothing is waiting for review.", Tab = "review", Source = review };
       foreach (JsonObject i in inbox.OfType<JsonObject>().Take(50))
@@ -201,7 +201,7 @@ static class Pages
       d.Sentences["search"] = n == 0 ? "Search everything your AI apps have saved." : $"Search everything your AI apps have saved. {n} to review.";
     }
     else d.Sections.Add(new PageSection { Head = "REVIEW", Empty = "The review list did not answer.", Tab = "review", Source = review });
-    if (CoreCall.Json(new[] { "audit", "--json" }) is JsonObject a)
+    if (CoreCall.JsonIfRunning(new[] { "audit", "--json" }) is JsonObject a)
       d.Sections.Add(new PageSection { Head = "CLEAN-UP", Tab = "review", Source = "memev audit --json",
         Rows = { new PageRow($"{J.Str(a["memories"])} memories, {J.Str(a["likely_junk"])} likely junk", Paths.Show(J.Str(a["next"])), 0) } });
     else d.Sections.Add(new PageSection { Head = "CLEAN-UP", Empty = "The clean-up report did not answer.", Tab = "review", Source = "memev audit --json" });
@@ -222,7 +222,7 @@ static class Pages
   public static PageData Checked()
   {
     const string src = "memev contract list";
-    if (CoreCall.Json(new[] { "contract", "list" }) is not JsonObject r || r["contracts"] is not JsonArray list)
+    if (CoreCall.JsonIfRunning(new[] { "contract", "list" }) is not JsonObject r || r["contracts"] is not JsonArray list)
       return new PageData { Sections = { new PageSection { Head = "CONTRACTS", Empty = "The contract list did not answer.", Source = src } }, Sentences = { [""] = "The contract list did not answer." } };
     // contracts.mjs contractList(): state is done (its verify passed, with a receipt), open (signed, not verified yet), superseded or draft
     var words = new Dictionary<string, string> { ["done"] = "checked: its verify passed", ["open"] = "signed, not checked yet", ["superseded"] = "replaced by a newer version", ["draft"] = "a draft, not signed" };
