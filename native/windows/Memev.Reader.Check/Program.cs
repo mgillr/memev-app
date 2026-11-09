@@ -228,8 +228,23 @@ static class Program
     if (args.Length == 3 && args[0] == "proof") return Proof(args[1], args[2]);
     string tmp = Path.Combine(Path.GetTempPath(), "memev-read-" + Guid.NewGuid().ToString("N").Substring(0, 8));
     Directory.CreateDirectory(tmp);
+    // one guide case: 'ok <name>' only after its own checks passed; an unknown name is an error
+    if (args.Length > 0 && args[0] == "--case")
+    {
+      try
+      {
+        if (args.Length != 2 || !GuideCases.Names.Contains(args[1])) { Console.Error.WriteLine($"unknown case; the cases are {string.Join(", ", GuideCases.Names)}"); return 2; }
+        GuideCases.Run(args[1], Expect, tmp);
+        if (failed > 0) { Console.Error.WriteLine($"{failed} check(s) of {args[1]} failed"); return 1; }
+        Console.WriteLine($"ok {args[1]}");
+        return 0;
+      }
+      finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
+    }
+    if (args.Length > 0) { Console.Error.WriteLine("usage: Memev.Reader.Check [--case <name> | proof <memev> <notes folder>]"); Directory.Delete(tmp, true); return 2; }
     try
     {
+      foreach (string name in GuideCases.Names) GuideCases.Run(name, Expect, tmp);
       TestJson();
       TestUrls();
       TestHttp();
