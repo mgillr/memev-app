@@ -231,32 +231,34 @@ sealed partial class MainWindow
         {
           var (code, output) = Pages.GuideRun(args);
           var (apps, _) = GuideModel.ParseConnect(output);
-          var fixes = apps.Any((a) => !a.Ok) || code != 0 ? GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output) : new List<FixItem>();
+          var fixes = GuideModel.Summarize(args.Skip(1).Where((a) => a != "--json"), code, apps).Kind != ConnectKind.AllConnected ? GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output) : new List<FixItem>();
           return (code, output, apps, fixes);
         }).ContinueWith((t) =>
         {
           var (code, output, apps, fixes) = t.Status == TaskStatus.RanToCompletion ? t.Result : (-1, "", new List<ConnectOutcome>(), new List<FixItem>());
           Guide.Log($"connect: exit={code} apps={string.Join(",", apps.Select((a) => $"{a.Id}={a.Status}"))} fixes={fixes.Count}");
           guideFlow.ConnectEnded();
-          GuideConnectResult(apps, fixes, code, output);
+          GuideConnectResult(args.Skip(1).Where((a) => a != "--json").ToList(), apps, fixes, code, output);
           GuideShow(StepImport);
         }, TaskScheduler.FromCurrentSynchronizationContext());
       },
     });
   }
 
-  void GuideConnectResult(List<ConnectOutcome> apps, List<FixItem> fixes, int code, string output)
+  void GuideConnectResult(List<string> sent, List<ConnectOutcome> apps, List<FixItem> fixes, int code, string output)
   {
-    var failed = apps.Where((a) => !a.Ok).Select((a) => a.Id).ToList();
+    var sum = GuideModel.Summarize(sent, code, apps);
+    var failed = sum.NotConnected;
     var rows = apps.Select((a) => new DetailRow(guideConnect.FirstOrDefault((r) => r.App.Id == a.Id)?.App.Name ?? a.Id,
       a.Ok ? (a.Seat.Length > 0 ? $"connected · seat {a.Seat}" : "connected") : $"not connected{(a.Detail.Length > 0 ? " · " + a.Detail : "")}",
       Glyph: a.Ok ? GlyphKind.Ok : GlyphKind.Warn)).ToList();
+    rows.AddRange(sum.Missing.Select((id) => new DetailRow(guideConnect.FirstOrDefault((r) => r.App.Id == id)?.App.Name ?? id, "Memev did not report the result", Glyph: GlyphKind.Warn)));
     rows.AddRange(GuideModel.FixLines(fixes).Select((l) => new DetailRow("To fix", l, Glyph: GlyphKind.Warn)));
-    bool allOk = code == 0 && failed.Count == 0 && apps.Count > 0;
+    bool allOk = sum.Kind == ConnectKind.AllConnected;
     var m = new SheetModel
     {
-      Title = allOk ? "Connected" : "Not every app connected",
-      Note = allOk ? "Open a new session in each app: it starts with your memory." : "The apps below that did not connect say why. Fix the safe ones runs the fixes that change nothing of yours, then tries those apps once more.",
+      Title = sum.Title,
+      Note = allOk ? "Open a new session in each app: it starts with your memory." : sum.Kind == ConnectKind.Unreported ? "The core did not say how each app went, so Memev does not call them connected. AI apps shows each app's state; Fix the safe ones runs the fixes that change nothing of yours, then tries them once more." : "The apps below that did not connect say why. Fix the safe ones runs the fixes that change nothing of yours, then tries those apps once more.",
       Rows = rows, Source = "memev connect --json · memev doctor --json", Main = "Close",
     };
     if (!allOk && failed.Count > 0 && GuideModel.OfferSafeFix(fixes))
@@ -270,14 +272,15 @@ sealed partial class MainWindow
         {
           var retry = t.Status == TaskStatus.RanToCompletion ? t.Result.Retry : new List<ConnectOutcome>();
           Guide.Log($"fix the safe ones: retry={string.Join(",", retry.Select((a) => $"{a.Id}={a.Status}"))}");
-          var fixesAfter = retry.Any((a) => !a.Ok) ? GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output) : new List<FixItem>();
-          GuideConnectResult(retry, fixesAfter, retry.All((a) => a.Ok) && retry.Count > 0 ? 0 : 1, "");
+          var again = GuideModel.Summarize(failed, 0, retry);
+          var fixesAfter = again.Kind != ConnectKind.AllConnected ? GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output) : new List<FixItem>();
+          GuideConnectResult(failed, retry, fixesAfter, again.Kind == ConnectKind.AllConnected ? 0 : 1, "");
         }, TaskScheduler.FromCurrentSynchronizationContext());
       };
     }
     Present(m);
     if (apps.Count == 0 && output.Length > 0) sheet.ShowOutput(Pages.Answer(output));
-    guideDetail.Text = allOk ? "" : string.Join("\n", GuideModel.FixLines(fixes).Take(3));
+    guideDetail.Text = GuideModel.ResultDetail(sum, fixes);
   }
 
   /// The lead step reads the roster with Memev running (it starts Memev when it is not): each seat registered at connect is a

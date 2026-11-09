@@ -47,6 +47,24 @@ public sealed class ConnectOutcome
   public bool Ok => Status is "connected" or "added" or "ready" or "ok" or "already";
 }
 
+public enum ConnectKind { AllConnected, SomeFailed, Unreported }
+
+/// What one connect run came to, for the ids it was sent. All connected only when the core exited 0 and reported every id as
+/// connected: a core that prints no outcome for an id it was sent (one that ignores --json and prints a text line) is
+/// Unreported, never a success with an empty list.
+public sealed class ConnectSummary
+{
+  public ConnectKind Kind;
+  public List<string> Missing = new();       // sent, and no outcome came back
+  public List<string> NotConnected = new();  // failed or missing: what Fix the safe ones tries again
+  public string Title => Kind switch
+  {
+    ConnectKind.AllConnected => "Connected",
+    ConnectKind.Unreported => "Memev did not report the result",
+    _ => "Not every app connected",
+  };
+}
+
 /// A doctor check that is not ok, with the text that says how to fix it.
 public sealed class FixItem
 {
@@ -231,6 +249,31 @@ public static class GuideModel
       list.Add(new ConnectOutcome { Id = id, Status = Str(it["status"]), Seat = seat, Detail = Str(it["detail"]) is { Length: > 0 } d ? d : Str(it["error"]) });
     }
     return (list, op);
+  }
+
+  public static ConnectSummary Summarize(IEnumerable<string> sent, int code, IEnumerable<ConnectOutcome> outcomes)
+  {
+    var ids = sent.Distinct().ToList();
+    var byId = outcomes.GroupBy((o) => o.Id).ToDictionary((g) => g.Key, (g) => g.First());
+    var sum = new ConnectSummary();
+    sum.Missing = ids.Where((id) => !byId.ContainsKey(id)).ToList();
+    var failed = ids.Where((id) => byId.TryGetValue(id, out var o) && !o.Ok).ToList();
+    sum.NotConnected = failed.Concat(sum.Missing).ToList();
+    sum.Kind = ids.Count == 0 || sum.Missing.Count > 0 ? ConnectKind.Unreported
+      : failed.Count > 0 || code != 0 ? ConnectKind.SomeFailed : ConnectKind.AllConnected;
+    return sum;
+  }
+
+  /// The guide's detail line under a connect result: empty when all connected; otherwise what happened and the doctor's
+  /// first fix line, or where to look when the doctor named none.
+  public static string ResultDetail(ConnectSummary sum, IEnumerable<FixItem> fixes)
+  {
+    if (sum.Kind == ConnectKind.AllConnected) return "";
+    string first = FixLines(fixes).FirstOrDefault() ?? "Health shows Memev's checks.";
+    string head = sum.Kind == ConnectKind.Unreported
+      ? $"Memev did not report the result for {string.Join(", ", sum.Missing)}."
+      : $"Not connected: {string.Join(", ", sum.NotConnected)}.";
+    return $"{head} {first}";
   }
 
   /// `doctor --json`: every check that is not ok, with its fix text (the fix's desc, else its manual sentence, else its detail).

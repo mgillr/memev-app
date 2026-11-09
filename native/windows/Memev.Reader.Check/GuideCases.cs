@@ -10,7 +10,7 @@ using Memev.Reader;
 
 static class GuideCases
 {
-  public static readonly string[] Names = { "connect-list", "connect-onestep", "connect-selected", "connect-result", "order", "lead-registered", "lead-retry", "fix-text", "fix-retry" };
+  public static readonly string[] Names = { "connect-list", "connect-onestep", "connect-selected", "connect-result", "connect-unreported", "order", "lead-registered", "lead-retry", "fix-text", "fix-retry" };
 
   const string Discover = "[\n" +
     "{\"id\":\"claude-code\",\"name\":\"Claude Code\",\"found\":true,\"evidence\":\"path\",\"install_path\":\"\",\"automation\":\"auto\",\"step\":\"\"},\n" +
@@ -144,6 +144,30 @@ static class GuideCases
         expect(apps.Count == 2, $"{name}: one outcome per app");
         expect(apps.Any((a) => a.Id == "claude-code" && a.Ok && a.Seat == "claude-code@pc"), $"{name}: a connected app shows its seat");
         expect(apps.Any((a) => a.Id == "cursor" && !a.Ok && a.Detail.Contains("read-only")), $"{name}: a failed app shows why");
+        return true;
+      }
+      case "connect-unreported":
+      {
+        // today's core ignores --json on connect and prints one text line, exit 0
+        var f = new Fixture(tmp, name, true);
+        File.WriteAllText(Path.Combine(f.Dir, "connect.json"), "Connected claude-code and cursor. Open a new session in each app.\n");
+        string[] sent = { "claude-code", "cursor" };
+        var (code, output) = f.Run(new[] { "connect", "claude-code", "cursor", "--json" });
+        var (apps, _) = GuideModel.ParseConnect(output);
+        var sum = GuideModel.Summarize(sent, code, apps);
+        expect(code == 0 && apps.Count == 0, $"{name}: the fixture core exits 0 and reports no outcome");
+        expect(sum.Kind == ConnectKind.Unreported && sum.Title == "Memev did not report the result", $"{name}: it is unreported, never connected ({sum.Kind})");
+        expect(sum.NotConnected.SequenceEqual(sent), $"{name}: both apps are retried by Fix the safe ones");
+        var fixes = GuideModel.ParseDoctor(f.Run(new[] { "doctor", "--json" }).Output);
+        string detail = GuideModel.ResultDetail(sum, fixes);
+        expect(detail.StartsWith("Memev did not report the result for claude-code, cursor.") && detail.Contains("restrict them to you"), $"{name}: the detail says so, with the doctor line ({detail})");
+        // one outcome of two is still unreported for the other
+        var half = GuideModel.Summarize(sent, 0, new[] { new ConnectOutcome { Id = "claude-code", Status = "connected" } });
+        expect(half.Kind == ConnectKind.Unreported && half.Missing.SequenceEqual(new[] { "cursor" }), $"{name}: fewer outcomes than ids is unreported");
+        var both = new[] { new ConnectOutcome { Id = "claude-code", Status = "connected" }, new ConnectOutcome { Id = "cursor", Status = "connected" } };
+        var all = GuideModel.Summarize(sent, 0, both);
+        expect(all.Kind == ConnectKind.AllConnected && GuideModel.ResultDetail(all, fixes) == "", $"{name}: every id connected is success");
+        expect(GuideModel.Summarize(sent, 1, both).Kind == ConnectKind.SomeFailed, $"{name}: a non-zero exit is never success");
         return true;
       }
       case "order":
