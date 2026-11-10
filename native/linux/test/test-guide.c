@@ -146,12 +146,44 @@ static void test_apply(void) {
   rmdir(dir);
 }
 
+/* a failed setup command says why: the core's stderr reaches the detail, scrubbed; a slow one says it was stopped */
+static void test_apply_reason(void) {
+  char dir[] = "/tmp/memev-guide-XXXXXX";
+  expect(mkdtemp(dir) != NULL, "mkdtemp");
+  char bin[256];
+  snprintf(bin, sizeof bin, "%s/memev", dir);
+  for (int round = 0; round < 3; round++) {
+    FILE *f = fopen(bin, "w");
+    expect(f != NULL, "fake core");
+    if (round == 0) fprintf(f, "#!/bin/sh\ncase \"$1\" in\n  init) echo 'cannot write the notes folder' >&2; exit 1 ;;\n  *) exit 0 ;;\nesac\n");
+    else if (round == 2) fprintf(f, "#!/bin/sh\ncase \"$1\" in\n  init) printf '  \\342\\234\\223 Memev running\\n  \\342\\234\\227 Agent comms bus: not set up\\n  \\342\\234\\223 Notes folder\\n  - last line\\n'; exit 1 ;;\n  *) exit 0 ;;\nesac\n");
+    else fprintf(f, "#!/bin/sh\ncase \"$1\" in\n  init) sleep 3 ;;\n  *) exit 0 ;;\nesac\n");
+    fclose(f);
+    chmod(bin, 0755);
+    GuidePlan plan;
+    guide_plan_clear(&plan);
+    plan.first_computer = 1;
+    snprintf(plan.notes_dir, sizeof plan.notes_dir, "%s/notes", dir);
+    char detail[400] = "";
+    if (round == 1) setenv("MEMEV_GUIDE_TIMEOUT_MS", "500", 1);
+    int rc = guide_apply(&plan, bin, detail, sizeof detail);
+    unsetenv("MEMEV_GUIDE_TIMEOUT_MS");
+    if (round == 0) expect(rc != 0 && strstr(detail, "cannot write the notes folder") != NULL, "the core's reason reaches the detail");
+    else if (round == 1) expect(rc != 0 && strstr(detail, "took longer than") != NULL, "a command past its limit says it was stopped");
+    else expect(rc != 0 && strstr(detail, "Agent comms bus: not set up") != NULL && strstr(detail, "last line") == NULL && strstr(detail, "Notes folder") == NULL,
+                "a failed checklist shows its failed lines, not the last ones");
+  }
+  unlink(bin);
+  rmdir(dir);
+}
+
 int main(void) {
   test_parse();
   test_silent();
   test_paths();
   test_urls();
   test_apply();
+  test_apply_reason();
   printf("guide tests passed\n");
   return 0;
 }

@@ -13,6 +13,9 @@ final class GuideController: NSObject {
   let apps = NSStackView()
   let backupTick = NSButton(checkboxWithTitle: "Record this remote, and push my notes to it", target: nil, action: nil)
   let back = NSButton(title: "Back", target: nil, action: nil)
+  /// The three steps after the check (REV2-SCREENS.md section 5) each have Skip; skipping changes nothing.
+  let skip = NSButton(title: "Skip", target: nil, action: nil)
+  var leadSeats: [String] = []
   var thisButton: NavButton!
   var otherButton: NavButton!
   var step = 0
@@ -45,7 +48,9 @@ final class GuideController: NSObject {
     apps.spacing = 6
     back.target = self
     back.action = #selector(goBack(_:))
-    for v in [text, choices, entry, apps, backupTick, detail, back] as [NSView] { view.addArrangedSubview(v) }
+    skip.target = self
+    skip.action = #selector(skipStep(_:))
+    for v in [text, choices, entry, apps, backupTick, detail, back, skip] as [NSView] { view.addArrangedSubview(v) }
   }
 
   func paint(_ p: Theme) {
@@ -73,7 +78,8 @@ final class GuideController: NSObject {
     owner.inGuide = true
     owner.select(-1)
     owner.showGuide()
-    back.isHidden = s == 0
+    back.isHidden = s == 0 || s >= 5
+    skip.isHidden = s < 5
     choices.isHidden = true
     entry.isHidden = true
     apps.isHidden = true
@@ -111,6 +117,22 @@ final class GuideController: NSObject {
       entry.placeholderString = "https://, ssh://, git:// or git@host:path"
       backupTick.isHidden = false
       backupTick.state = .off
+    case 5:
+      owner.pageTitle.stringValue = "Connect your AI apps?"
+      text.stringValue = "These are the AI apps Memev found on this computer. Memev adds itself to the settings of each one you tick and keeps a copy of the old settings first. A sheet names them before anything changes."
+      apps.isHidden = false
+      loadFoundApps()
+      owner.setPrimary("Connect the ticked apps")
+    case 6:
+      owner.pageTitle.stringValue = "Bring in your existing AI chat history?"
+      text.stringValue = "Memev can read the chats your AI apps keep on this computer, or a ChatGPT or Claude export. You see a preview before anything is kept, and each import can be undone."
+      owner.setPrimary("Look at what is there")
+    case 7:
+      owner.pageTitle.stringValue = "Which app should lead?"
+      text.stringValue = "The lead hands out tasks to the others and is the one you talk to. You can change it later."
+      apps.isHidden = false
+      loadSeats()
+      owner.setPrimary("Make it the lead")
     default:
       owner.pageTitle.stringValue = "Check that a note can be saved"
       text.stringValue = "This uses the core on this computer. It does not use sample figures."
@@ -188,8 +210,80 @@ final class GuideController: NSObject {
           self.detail.stringValue = said.isEmpty ? failure : said
           return
         }
-        self.finish()
+        // a computer that joined another's memory skips the three steps after the check: its memory lives on the other computer
+        if self.firstComputer == 1 { self.show(5) } else { self.finish() }
       }
+    }
+  }
+
+  // MARK: The three steps after the check (REV2-SCREENS.md section 5)
+
+  @objc func skipStep(_ sender: Any?) {
+    if busy { return }
+    if step == 5 { show(6) } else if step == 6 || step == 61 { show(7) } else { finish() }
+  }
+
+  func clearList(_ placeholder: String) {
+    for v in apps.arrangedSubviews { apps.removeArrangedSubview(v); v.removeFromSuperview() }
+    apps.addArrangedSubview(owner.plain(placeholder))
+  }
+
+  /// The apps onboarding --json found; a connectable one starts ticked, and its tick carries the core's id.
+  func loadFoundApps() {
+    clearList("Reading the apps Memev found.")
+    DispatchQueue.global(qos: .userInitiated).async {
+      let (found, read) = Pages.apps()
+      DispatchQueue.main.async {
+        guard self.step == 5 else { return }
+        for v in self.apps.arrangedSubviews { self.apps.removeArrangedSubview(v); v.removeFromSuperview() }
+        self.owner.agents.apps = found
+        let can = found.filter { $0.connectable }
+        if !read { self.apps.addArrangedSubview(self.owner.plain("The list of AI apps did not answer. Skip this, and connect apps later from Bots and agents, Connect.")) }
+        else if can.isEmpty { self.apps.addArrangedSubview(self.owner.plain(found.isEmpty ? "No AI apps were found on this computer." : "Every app Memev found is connected already, or needs a step by hand.")) }
+        for a in can {
+          let tick = NSButton(checkboxWithTitle: a.name, target: nil, action: nil)
+          tick.font = TypeStyle.body.font
+          tick.state = .on
+          tick.identifier = NSUserInterfaceItemIdentifier(a.id)
+          self.apps.addArrangedSubview(tick)
+        }
+        self.paint(self.owner.palette)
+      }
+    }
+  }
+
+  /// The seats bus roster --json lists, one to pick.
+  func loadSeats() {
+    clearList("Reading the seats on the message bus.")
+    DispatchQueue.global(qos: .userInitiated).async {
+      let r = memevJSON(["bus", "roster", "--json"]) as? [String: Any]
+      let seats = ((r?["seats"] as? [[String: Any]]) ?? []).map { str($0["seat"]) }.filter { !$0.isEmpty && !$0.contains(" ") }
+      DispatchQueue.main.async {
+        guard self.step == 7 else { return }
+        for v in self.apps.arrangedSubviews { self.apps.removeArrangedSubview(v); v.removeFromSuperview() }
+        self.leadSeats = seats
+        if r == nil { self.apps.addArrangedSubview(self.owner.plain("The roster did not answer. Skip this, and choose the lead later.")) }
+        else if seats.isEmpty { self.apps.addArrangedSubview(self.owner.plain("No app has a seat yet. Each connected app gets one on its first session. Skip this, and choose the lead later with memev bus operator.")) }
+        for (i, seat) in seats.enumerated() {
+          let b = NSButton(radioButtonWithTitle: seat, target: self, action: #selector(self.pickSeat(_:)))
+          b.font = TypeStyle.body.font
+          b.state = i == 0 ? .on : .off
+          b.identifier = NSUserInterfaceItemIdentifier(seat)
+          self.apps.addArrangedSubview(b)
+        }
+        self.paint(self.owner.palette)
+      }
+    }
+  }
+
+  @objc func pickSeat(_ sender: NSButton) {
+    for v in apps.arrangedSubviews { if let b = v as? NSButton, b !== sender { b.state = .off } }
+  }
+
+  func ticks() -> [String] {
+    apps.arrangedSubviews.compactMap { v in
+      guard let b = v as? NSButton, b.state == .on, let id = b.identifier?.rawValue else { return nil }
+      return id
     }
   }
 
@@ -219,6 +313,24 @@ final class GuideController: NSObject {
       let (ok, why) = check()
       if !ok { detail.stringValue = why.isEmpty ? "That remote cannot be recorded." : why; return }
       show(4)
+    case 5:
+      let ids = Set(ticks().filter { plainId($0) })
+      if ids.isEmpty { show(6); return }
+      owner.agents.ticked = ids
+      owner.agents.connectSheet(onDone: { [weak self] in self?.show(6) })
+    case 6:
+      owner.agents.importSheet()
+      owner.setPrimary("Continue")
+      step = 61
+    case 61:
+      show(7)
+    case 7:
+      guard let seat = ticks().first, leadSeats.contains(seat) else { finish(); return }
+      owner.sheet.present(SheetModel(title: "Make \(seat) the lead?", note: "It hands out tasks to the others and is the one you talk to. You can change the lead later.",
+                                     source: "memev bus operator \(seat)", main: "Make \(seat) the lead", onMain: { [weak self] host in
+        self?.owner.agents.run(host, doing: "Making \(seat) the lead.", args: ["bus", "operator", seat], timeout: 30000,
+                               done: "The lead is set", failed: "The lead was not set", onDone: { [weak self] in self?.finish() })
+      }))
     default:
       apply(failure: "The check did not pass.")
     }

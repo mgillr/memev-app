@@ -14,7 +14,26 @@ func memevRun(_ args: [String], timeout: Int = 10000) -> (Int, String) {
   return (Int(code), String(cString: buf))
 }
 
+/// The reads that start a stopped Memev (trial core 7f828aca, each run on a stopped vault): card, bus roster, review, audit,
+/// recall and contract. The window never starts Memev by reading: these run only while status says it is running.
+func startsCore(_ args: [String]) -> Bool {
+  guard let a = args.first else { return false }
+  return ["card", "review", "audit", "recall", "contract"].contains(a) || (a == "bus" && args.dropFirst().first == "roster")
+}
+
+/// Whether Memev is stopped: status --json says running false (it exits 1 then). A core that does not answer at all is not
+/// called stopped, so its pages still say it did not answer. status never starts Memev itself.
+func coreStopped() -> Bool {
+  let (_, out) = memevRun(["status", "--json"], timeout: 5000)
+  guard let d = out.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return false }
+  return j["running"] as? Bool == false
+}
+
+/// What a section says when its read gave nothing: stopped, or no answer.
+func noAnswer(_ what: String) -> String { coreStopped() ? "Memev is stopped, so this is not read. Start it to see it." : "\(what) did not answer." }
+
 func memevJSON(_ args: [String]) -> Any? {
+  if startsCore(args) && coreStopped() { return nil }
   let (code, out) = memevRun(args)
   guard code == 0, let d = out.data(using: .utf8) else { return nil }
   return try? JSONSerialization.jsonObject(with: d)
@@ -36,6 +55,58 @@ struct PageData {
   var sections: [PageSection]
   var sentences: [String: String] = [:]
   var counts: [String: Int] = [:]
+  /// The apps the core found (REV2-SCREENS.md 5.1), and whether onboarding --json answered.
+  var apps: [AppItem] = []
+  var appsRead = false
+  /// The background agents (5.3), and whether runner status --json answered.
+  var runners: [RunnerRow] = []
+  var runnersRead = false
+}
+
+/// One app the core found on this computer, from onboarding --json (REV2-SCREENS.md 5.1).
+struct AppItem {
+  let id: String
+  let name: String
+  let status: String
+  let detail: String
+  var note = ""
+  /// Found and supported, not connected: the core's own step is exactly `memev connect <id>`.
+  var connectable: Bool { status == "needs-manual" && detail == "memev connect \(id)" }
+  var connected: Bool { status == "ready" || status == "added" }
+  var disconnectedByYou: Bool { status == "skipped" }
+  /// What the row's second line says.
+  var state: String {
+    if connectable { return "found \u{00B7} not connected" }
+    if connected { return note.isEmpty ? "connected" : "connected \u{00B7} \(note)" }
+    if disconnectedByYou { return "you disconnected it" }
+    return detail
+  }
+}
+
+/// One background agent, from runner status --json (REV2-SCREENS.md 5.3).
+struct RunnerRow {
+  let seat: String
+  let enabled: Bool
+  let maxPerDay: Int
+  let today: Int
+}
+
+/// An id the core printed: ASCII letters, digits, - _ . only, at most 64 characters, as the Windows window takes them.
+func plainId(_ s: String) -> Bool {
+  !s.isEmpty && s.count <= 64 && s.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "-_.".unicodeScalars.contains($0)) }
+}
+
+/// The person's own home shown as ~ (owner ruling D-4): their paths are shown, shortened.
+func showPath(_ s: String) -> String {
+  let home = NSHomeDirectory()
+  return home.count > 1 ? s.replacingOccurrences(of: home, with: "~") : s
+}
+
+/// The core's answer as JSON, whatever its exit code: onboarding --json exits non-zero while a step is not done yet.
+func memevJSONAnyCode(_ args: [String], timeout: Int = 60000) -> Any? {
+  let (code, out) = memevRun(args, timeout: timeout)
+  guard code >= 0, let d = out.data(using: .utf8) else { return nil }
+  return try? JSONSerialization.jsonObject(with: d)
 }
 
 func str(_ v: Any?) -> String {
@@ -66,7 +137,7 @@ enum Pages {
           return PageRow(title: safe(str(h["snippet"])), sub: safe(str(h["heading"])) + (proj.isEmpty ? "" : " · \(proj)"), tone: 0)
         }, empty: "Nothing matched.", tab: "search", source: recall))
       } else {
-        d.sections.append(PageSection(head: "SEARCH", rows: [], empty: "The search did not answer.", tab: "search", source: recall))
+        d.sections.append(PageSection(head: "SEARCH", rows: [], empty: noAnswer("The search"), tab: "search", source: recall))
       }
     }
     let review = "memev review list --json"
@@ -79,14 +150,14 @@ enum Pages {
       d.sentences["review"] = n == 0 ? "Nothing is waiting for review." : "\(plural(n, "memory", "memories")) to review. Keep what is still true, drop what is not."
       d.sentences["search"] = n == 0 ? "Search everything your AI apps have saved." : "Search everything your AI apps have saved. \(n) to review."
     } else {
-      d.sections.append(PageSection(head: "REVIEW", rows: [], empty: "The review list did not answer.", tab: "review", source: review))
+      d.sections.append(PageSection(head: "REVIEW", rows: [], empty: noAnswer("The review list"), tab: "review", source: review))
     }
     if let a = memevJSON(["audit", "--json"]) as? [String: Any] {
       d.sections.append(PageSection(head: "CLEAN-UP", rows: [
         PageRow(title: "\(str(a["memories"])) memories, \(str(a["likely_junk"])) likely junk", sub: str(a["next"]), tone: 0),
       ], empty: "", tab: "review", source: "memev audit --json"))
     } else {
-      d.sections.append(PageSection(head: "CLEAN-UP", rows: [], empty: "The clean-up report did not answer.", tab: "review", source: "memev audit --json"))
+      d.sections.append(PageSection(head: "CLEAN-UP", rows: [], empty: noAnswer("The clean-up report"), tab: "review", source: "memev audit --json"))
     }
     return d
   }
@@ -94,8 +165,8 @@ enum Pages {
   static func checked() -> PageData {
     let src = "memev contract list"
     guard let r = memevJSON(["contract", "list"]) as? [String: Any], let list = r["contracts"] as? [[String: Any]] else {
-      return PageData(sections: [PageSection(head: "CONTRACTS", rows: [], empty: "The contract list did not answer.", source: src)],
-                      sentences: ["": "The contract list did not answer."])
+      return PageData(sections: [PageSection(head: "CONTRACTS", rows: [], empty: noAnswer("The contract list"), source: src)],
+                      sentences: ["": noAnswer("The contract list")])
     }
     // contracts.mjs contractList(): state is done (its verify passed, with a receipt), open (signed, not verified yet), superseded or draft
     let words = ["done": "checked: its verify passed", "open": "signed, not checked yet", "superseded": "replaced by a newer version", "draft": "a draft, not signed"]
@@ -108,8 +179,41 @@ enum Pages {
     }, empty: "No contracts yet.", source: src)], sentences: ["": sentence])
   }
 
+  /// onboarding --json: the one output that names each app's id (its items' `app`). Items with no app (the vault, the bus,
+  /// Memev running) are left out, so their paths never reach the window; a connected app's one manual step stays with it.
+  static func apps() -> ([AppItem], Bool) {
+    guard let items = memevJSONAnyCode(["onboarding", "--json"]) as? [[String: Any]] else { return ([], false) }
+    var out: [AppItem] = []
+    for it in items {
+      let id = str(it["app"])
+      if !plainId(id) { continue }
+      let detail = showPath(str(it["detail"]))
+      if it["note"] as? Bool == true {
+        if let i = out.firstIndex(where: { $0.id == id }) { out[i].note = detail }
+        continue
+      }
+      if out.contains(where: { $0.id == id }) { continue }
+      let step = str(it["step"])
+      out.append(AppItem(id: id, name: step.isEmpty ? id : step, status: str(it["status"]), detail: detail))
+    }
+    return (out, true)
+  }
+
+  /// runner status --json: each background agent's seat, whether it is on, and its runs today against its daily limit.
+  static func runners() -> ([RunnerRow], Bool) {
+    guard let list = memevJSON(["runner", "status", "--json"]) as? [[String: Any]] else { return ([], false) }
+    let rows = list.compactMap { r -> RunnerRow? in
+      let seat = str(r["seat"])
+      if seat.isEmpty { return nil }
+      return RunnerRow(seat: seat, enabled: r["enabled"] as? Bool == true, maxPerDay: Int(str(r["max_runs_per_day"])) ?? 0, today: Int(str(r["today"])) ?? 0)
+    }
+    return (rows, true)
+  }
+
   static func bots() -> PageData {
     var d = PageData(sections: [])
+    (d.apps, d.appsRead) = apps()
+    (d.runners, d.runnersRead) = runners()
     let rosterSrc = "memev bus roster --json"
     if let r = memevJSON(["bus", "roster", "--json"]) as? [String: Any] {
       // bus.mjs roster(): a row is a seat, or a computer with no app yet (seat null); state is live, stale, never joined or removed
@@ -131,7 +235,7 @@ enum Pages {
       d.sentences["team"] = s
       d.counts["quiet"] = quiet.count
     } else {
-      d.sections.append(PageSection(head: "TEAM", rows: [], empty: "The roster did not answer.", tab: "team", source: rosterSrc))
+      d.sections.append(PageSection(head: "TEAM", rows: [], empty: noAnswer("The roster"), tab: "team", source: rosterSrc))
     }
     let devSrc = "memev devices list --json"
     if let r = memevJSON(["devices", "list", "--json"]) as? [String: Any], let devs = r["devices"] as? [[String: Any]] {
@@ -144,10 +248,16 @@ enum Pages {
       d.sections.append(PageSection(head: "COMPUTERS AND APPS", rows: [], empty: "The device list did not answer.", tab: "connect", source: devSrc))
     }
     let (code, text) = memevRun(["clients"])
-    let lines = code == 0 ? text.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } : []
-    d.sections.append(PageSection(head: "APPS ON THIS COMPUTER", rows: lines.prefix(40).map { PageRow(title: safe($0), sub: "", tone: 0) },
-                                  empty: "The app list did not answer.", tab: "connect", source: "memev clients"))
-    d.sentences["connect"] = "The AI apps on this computer, and the computers and apps that reach your memory, as the core lists them."
+    let lines = code == 0 ? text.split(separator: "\n").map { String($0) } : []
+    d.counts["notFound"] = lines.filter { $0.hasSuffix("not found") }.count
+    let found = d.apps.count
+    let connected = d.apps.filter { $0.connected }.count
+    d.sentences["connect"] = !d.appsRead ? "The list of AI apps did not answer."
+      : found == 0 ? "No AI apps were found on this computer."
+      : "\(connected) of \(found) AI apps found on this computer \(connected == 1 ? "is" : "are") connected."
+    let on = d.runners.filter { $0.enabled }.count
+    d.sentences["agents"] = !d.runnersRead ? "The background agents did not answer."
+      : on == 0 ? "No background agent is on." : on == 1 ? "1 background agent is on." : "\(on) background agents are on."
     return d
   }
 

@@ -3,6 +3,7 @@
 #include "read.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 void guide_plan_clear(GuidePlan *plan) {
@@ -235,6 +236,29 @@ static void scrub(const char *src, char *dst, size_t n) {
   dst[o] = 0;
 }
 
+/* init and join end with a checklist; when one fails, the lines marked as failed (U+2717) say why, not the last lines.
+   Writes those lines to dst, or all of src when none is marked. */
+static const char *failed_lines(const char *src, char *dst, size_t n) {
+  size_t o = 0;
+  for (const char *line = src; *line && n > 0;) {
+    const char *end = strchr(line, '\n');
+    size_t len = end ? (size_t)(end - line) : strlen(line);
+    const char *p = line;
+    while (p < line + len && (*p == ' ' || *p == '\t')) p++;
+    if ((size_t)(line + len - p) >= 3 && memcmp(p, "\xE2\x9C\x97", 3) == 0) {
+      size_t take = (size_t)(line + len - p);
+      if (o > 0 && o + 1 < n) dst[o++] = '\n';
+      if (take > n - 1 - o) take = n - 1 - o;
+      memcpy(dst + o, p, take);
+      o += take;
+    }
+    if (!end) break;
+    line = end + 1;
+  }
+  if (n > 0) dst[o] = 0;
+  return o > 0 ? dst : src;
+}
+
 int guide_apply(const GuidePlan *plan, const char *bin, char *detail, size_t detailn) {
   if (detail && detailn) detail[0] = 0;
   if (!bin || !bin[0]) return -1;
@@ -253,10 +277,19 @@ int guide_apply(const GuidePlan *plan, const char *bin, char *detail, size_t det
     argv[cmds[i].argc] = NULL;
     int code = 0;
     out[0] = 0; /* memev_capture leaves out unwritten when it cannot start the command */
-    int timeout = strcmp(cmds[i].arg[1], "init") == 0 ? 20000 : 10000;
-    if (memev_capture(bin, argv, out, sizeof out, timeout, &code) != 0 || code != 0) {
-      char bit[200];
-      scrub(out, bit, sizeof bit);
+    /* a first init starts Node and git, maybe while a virus scanner checks them, and makes the vault: it can take minutes.
+       MEMEV_GUIDE_TIMEOUT_MS is for tests. */
+    int timeout = strcmp(cmds[i].arg[1], "init") == 0 || strcmp(cmds[i].arg[1], "join") == 0 ? 300000 : 60000;
+    const char *t = getenv("MEMEV_GUIDE_TIMEOUT_MS");
+    if (t && atoi(t) > 0) timeout = atoi(t);
+    int rc = memev_capture_all(bin, argv, out, sizeof out, timeout, &code);
+    if (rc == -2) {
+      if (detail) snprintf(detail, detailn, "The command %s took longer than %d seconds, so it was stopped. Try again; if it happens twice, open Health.", cmds[i].arg[1], timeout / 1000);
+      return -1;
+    }
+    if (rc != 0 || code != 0) {
+      char bit[200], bad[1024];
+      scrub(failed_lines(out, bad, sizeof bad), bit, sizeof bit);
       if (detail) snprintf(detail, detailn, "The command %s stopped. %s", cmds[i].arg[1], bit);
       return -1;
     }

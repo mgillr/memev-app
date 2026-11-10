@@ -126,6 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   var pageTitle: Label { screen("guide").header.title }
   let primary = MButton("Continue", .secondary, rank: 1)
   var guide: GuideController!
+  /// The Connect and Background agents tabs and the Import sheet (REV2-SCREENS.md section 5).
+  var agents: AgentScreens!
   let search = NSSearchField()
   var refreshItem: NSMenuItem!
   var overviewSentence: Label { screen("overview").header.sentence }
@@ -299,6 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ])
 
     guide = GuideController(owner: self)
+    agents = AgentScreens(owner: self)
     primary.onPress = { [weak self] in self?.refreshClicked(nil) }
     _ = screen("overview")
     _ = screen("health")
@@ -779,6 +782,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       put(note("Type words and press Return to search everything your AI apps have saved."), in: v, labelled: false)
     }
     if id == "settings", let v = views["general"] { put(settingsControls(), in: v) }
+    if id == "bots", let d = d {
+      if let v = views["connect"] { agents.fillConnect(v, d) }
+      if let v = views["agents"] { agents.fillAgents(v, d) }
+    }
     for k in keys {
       if let why = NOT_BUILT["\(id)/\(k)"] { put(note(why), in: views[k]!, labelled: false) }
       if let later = laterBlock(k.isEmpty ? id : "\(id)/\(k)") { put(later, in: views[k]!, labelled: false) }
@@ -921,7 +928,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let tabList = tabs(id)
     let tab = tabFor[id] ?? tabList.first?.id ?? ""
     if id != "guide" {
-      s.header.configure(title: d.title, sentence: sentence(id, tab), tabs: tabList, selected: tab, showWhat: !d.words.isEmpty, actions: [s.refresh])
+      s.header.configure(title: d.title, sentence: sentence(id, tab), tabs: tabList, selected: tab, showWhat: !d.words.isEmpty, actions: [s.refresh] + agents.actions(id, tab))
     } else {
       s.header.configure(title: s.header.title.stringValue, sentence: "", tabs: [], selected: "", showWhat: false, actions: [primary])
       clear(s.content)

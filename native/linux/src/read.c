@@ -328,7 +328,9 @@ int memev_http_get(const char *url, char *body, size_t bodyn, int timeout_ms) {
   return 0;
 }
 
-int memev_capture(const char *bin, char *const argv[], char *out, size_t outn, int timeout_ms, int *exit_code) {
+/* keep_err: stderr goes into the same pipe as stdout, and when the output is longer than out, its tail is kept, so a
+   failed command's last words (the reason) survive. Returns 0, -1 when it could not run, -2 when it was stopped at the limit. */
+static int capture(const char *bin, char *const argv[], char *out, size_t outn, int timeout_ms, int *exit_code, int keep_err) {
   int fds[2];
   if (pipe(fds) != 0) return -1;
   pid_t pid = fork();
@@ -339,8 +341,12 @@ int memev_capture(const char *bin, char *const argv[], char *out, size_t outn, i
   }
   if (pid == 0) {
     dup2(fds[1], STDOUT_FILENO);
-    int devnull = open("/dev/null", O_WRONLY);
-    if (devnull >= 0) dup2(devnull, STDERR_FILENO);
+    if (keep_err) {
+      dup2(fds[1], STDERR_FILENO);
+    } else {
+      int devnull = open("/dev/null", O_WRONLY);
+      if (devnull >= 0) dup2(devnull, STDERR_FILENO);
+    }
     close(fds[0]);
     close(fds[1]);
     execv(bin, argv);
@@ -367,6 +373,16 @@ int memev_capture(const char *bin, char *const argv[], char *out, size_t outn, i
       if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
       break;
     }
+    if (keep_err && outn > 1 && used + (size_t)n > outn - 1) {
+      /* keep the tail: drop the oldest bytes so the newest fit */
+      size_t cap = outn - 1;
+      size_t keep_new = (size_t)n < cap ? (size_t)n : cap;
+      size_t keep_old = cap - keep_new < used ? cap - keep_new : used;
+      memmove(out, out + used - keep_old, keep_old);
+      memcpy(out + keep_old, buf + (size_t)n - keep_new, keep_new);
+      used = keep_old + keep_new;
+      continue;
+    }
     size_t room = outn > 0 && used + 1 < outn ? outn - 1 - used : 0;
     size_t take = (size_t)n < room ? (size_t)n : room;
     if (take > 0) memcpy(out + used, buf, take);
@@ -378,7 +394,15 @@ int memev_capture(const char *bin, char *const argv[], char *out, size_t outn, i
   waitpid(pid, &st, 0);
   if (outn > 0) out[used < outn ? used : outn - 1] = 0;
   if (exit_code) *exit_code = WIFEXITED(st) ? WEXITSTATUS(st) : 128;
-  return timed ? -1 : 0;
+  return timed ? (keep_err ? -2 : -1) : 0;
+}
+
+int memev_capture(const char *bin, char *const argv[], char *out, size_t outn, int timeout_ms, int *exit_code) {
+  return capture(bin, argv, out, outn, timeout_ms, exit_code, 0);
+}
+
+int memev_capture_all(const char *bin, char *const argv[], char *out, size_t outn, int timeout_ms, int *exit_code) {
+  return capture(bin, argv, out, outn, timeout_ms, exit_code, 1);
 }
 
 static int executable(const char *path) {
@@ -539,8 +563,9 @@ int memev_load_glance(MemevGlance *g) {
   char *doctor_argv[] = {bin, "doctor", "--json", NULL};
   if (memev_capture(bin, doctor_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out))
     load_checks(g, out);
+  /* card --json starts a stopped Memev, so a stopped one is left stopped: it is read only when status said Memev runs */
   char *card_argv[] = {bin, "card", "--json", NULL};
-  if (memev_capture(bin, card_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out)) {
+  if (g->daemon_up && memev_capture(bin, card_argv, out, sizeof out, 3000, &code) == 0 && code == 0 && json_value(out)) {
     char tmp[200];
     if (memev_json_get(out, "project", tmp, sizeof tmp) == 0 && plain_label(tmp, 79))
       copy_into(g->project, sizeof g->project, tmp);

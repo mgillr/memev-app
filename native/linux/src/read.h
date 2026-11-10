@@ -40,6 +40,8 @@ int memev_json_get(const char *json, const char *key, char *out, size_t outn);
 
 /* Run bin with argv (argv[0] is bin). 0 when the process ends in time. */
 int memev_capture(const char *bin, char *const argv[], char *out, size_t outn, int timeout_ms, int *exit_code);
+/* As memev_capture, with stderr kept in out and the tail kept when it is too long; -2 when stopped at the limit. */
+int memev_capture_all(const char *bin, char *const argv[], char *out, size_t outn, int timeout_ms, int *exit_code);
 
 /* MEMEV_BIN, or memev on PATH. 0 when an executable was copied to out. */
 int memev_resolve_bin(char *out, size_t outn);

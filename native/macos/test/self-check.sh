@@ -27,7 +27,7 @@ for bin in "$root/memev-desktop" "$root/Memev.app/Contents/MacOS/memev-desktop";
       'minw=1024' 'minh=700' 'sidebar=240' 'accel=1' 'match=1' 'secret=absent' 'visible=1' "theme=$theme" \
       'pips=14' 'pip=Backup:needs' 'pip=Running:fine' 'pip=Shared:unread' \
       'screen=overview|Executive overview|' 'screen=operations|Operations|Workspace,Messages' 'screen=projects|Projects|' \
-      'screen=bots|Bots and agents|Team,Connect,Access' 'screen=memory|Memory|Search,Review,Browse,History,Health' \
+      'screen=bots|Bots and agents|Team,Connect,Background agents,Access' 'screen=memory|Memory|Search,Review,Browse,History,Health' \
       'screen=checked|Checked work|' 'screen=settings|Settings|General,Plan and computers,Storage and backup,Advanced,Help and support' \
       'screen=health|Health|' 'confirm_amber=0' 'confirm_main=red' 'sheet_amber=1' 'sheet_ring=1' 'amber_ring=1' \
       'start_sheet=Start Memev?|Start Memev' 'reads=6' 'font_sans=Space Grotesk' 'font_mono=IBM Plex Mono' 'font_weights=400,500,600'; do

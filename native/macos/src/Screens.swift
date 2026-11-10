@@ -49,8 +49,8 @@ let NAV: [ScreenDef] = [
     ("Out of date", "A check passed, then what it checked changed. The pass no longer counts until the check runs again."),
   ]),
   ScreenDef(id: "bots", menu: "Bots and agents", title: "Bots and agents",
-            tabs: [TabItem(id: "team", label: "Team"), TabItem(id: "connect", label: "Connect"), TabItem(id: "access", label: "Access")],
-            sentences: ["team": "Reading Memev.", "connect": "Reading Memev.", "access": "Access keys are not listed here yet."],
+            tabs: [TabItem(id: "team", label: "Team"), TabItem(id: "connect", label: "Connect"), TabItem(id: "agents", label: "Background agents"), TabItem(id: "access", label: "Access")],
+            sentences: ["team": "Reading Memev.", "connect": "Reading Memev.", "agents": "Reading Memev.", "access": "Access keys are not listed here yet."],
             words: [
               ("Bot or agent", "An AI app connected to your memory, with its own seat on the message bus."),
               W_LEAD,
