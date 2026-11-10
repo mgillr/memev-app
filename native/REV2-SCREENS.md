@@ -862,3 +862,77 @@ These are not missing core commands. They are places where the design and this r
 - **D-5 The support address.** SU-1. It stays out of this repository until the leak denylist has been checked (05-decisions:151-153).
 - **D-6 Counts that differ between the notes and the code.** 14 pips in the code, 13 in 05-decisions:14 (the code is used here). `line` is #2B3543 dark and #D6DBE3 light in the code, #252E3A and #DDE1E7 in 05-decisions:62 (the code is used). The mockup says 18 known apps (`logic4.js:19`), the inventory 17. The app shows what the core prints. Memory, Search in first run draws two amber buttons, the empty state's "Import" and the page action "Save a memory" (`logic4.js:65-66`, `logic1.js:139`, `logic5.js:179`); the app keeps only the empty state's.
 - **D-7 Buttons with no flow drawn.** Many action buttons only print "Mockup only: ... changes nothing here." (for example "Change the lead", "Write to a bot", "Issue a key", "Give to another bot", "Rename", "Check", "Make lead", "Switch on" for the runner, "Keep", "It helped", "Sign", "Approve", "Restart"). The map gives the command for each. Each still needs its confirmation drawn, per COVERAGE.md:5, before it is built.
+
+## 5. Addendum, 7 Nov 2026: three screens the owner asked for after the map was written
+
+These follow the rev2 visual language of section 1: the section label, lists on `panel`, the one amber button, form sheets with an amber main button, and confirmation sheets with a red main button. The sources are the commands of the core on memev main, pinned in the installers at `f5c2254e9e97a5f9ce04513ad0c1d8de619a7f6f`. Where that core has no command, the element says so; nothing is a sample figure.
+
+The guided first launch keeps its first steps (this computer or another, the notes folder, the backup remote, the check that a note comes back). After the check it asks three more things, in this order, and each one has a "Skip" button: connect your AI apps (5.1), bring in your chat history (5.2), and choose the lead (5.4). Skipping changes nothing. A computer that joined another computer's memory skips all three, because its memory lives on the other computer.
+
+### 5.1 Bots and agents, Connect tab: the apps Memev found
+
+- Sentence: "<n> of <m> AI apps found on this computer are connected." When none is found: "No AI apps were found on this computer."
+- **BC-8 Section "AI APPS ON THIS COMPUTER"**, a list of every app the core found. Each row: a tick box, the app name, and its state in `sub`.
+  - Found and supported, not connected: ticked, "found · not connected".
+  - Connected: shown ticked and greyed, "connected", with the row's "Disconnect" button (the confirmation sheet "Disconnect <app>?", then `disconnect <id>`).
+  - Disconnected by you earlier: not ticked, "you disconnected it".
+  - Found but not supported, or a supported app whose settings file Memev cannot edit: no tick; the second line is the core's own manual step.
+  - Src: `onboarding --json`. Its items carry `app` (the id), `step` (the name), `status` (`added`, `ready`, `skipped`, `needs-manual`, `unsupported`) and `detail` (the manual step). A found, connectable app is the item whose detail is `memev connect <id>`. This is the only output of the trial core that prints an app id: `clients` prints names only, and there is no `clients --json` or `connect list`. `onboarding --json` is not a pure read: it rewrites `.memev/onboarding.json`, records the milestones and registers the seats of apps that are already connected. It does not start a stopped Memev and connects nothing. The app does not keep a list of its own.
+- **BC-9 Page action "Connect <n> apps"** (amber, enabled while at least one box is ticked). It opens **BC-S3**, a sheet titled "Connect <n> AI apps?". Note: "Memev adds itself to the settings of each app below and keeps a copy of the old settings first. Each app gets its own seat on the message bus. You can disconnect any of them later." Rows: one per ticked app. Main button "Connect" (amber). The sheet is the confirmation.
+  - Act: `connect <id> <id> ...`, the ids of the ticked rows only, never `connect` with no app and never `connect all`. The core's answer is shown, line by line, in the sheet, then the list is read again.
+- **BC-10 Line "Apps not found on this computer"**: the count of the `clients` rows that read "not found". Text only.
+
+### 5.2 Import history
+
+The trial core at `8520a874d1159054bea7e51b310ed415a29c629e` has the history scan (`docs/IMPORT.md` in the core).
+
+- Setup asks once, after the note check: "Bring in your existing AI chat history?" It lists every source `import scan --json` finds, each with a tick box, the app's name, and a second line with its count ("42 sessions", or "not counted yet" when the core did not count it), its size, its first and last dates, how many projects it spans, and where it is (the person's own path, shortened with ~). A source the core marks (`marked`, 100 items or fewer) is ticked; the rest are not. The main button reads "Import <n> sources" (amber), or "Continue" with nothing ticked; "Skip" moves on.
+  - Src: `import scan --json`: `sources[]` with `id`, `app`, `kind` (`files`, `sessions`, `export`), `path`, `count` (or `null`), `bytes`, `first`, `last`, `marked`, `projects`. The scan imports nothing, needs no vault and does not stop Memev.
+- One confirmation sheet, "Import <n> sources?" (or "Import <app>?" for one), names each chosen source with its line, and says what happens: one note per conversation, nothing leaves the computer, no AI model is used, Memev stops while it imports and starts again, a large history takes minutes, and it can be undone. Main "Import" (amber).
+  - Act: `import --source ID --source ID ... --yes`.
+- The import runs in the background. A sheet shows a moving bar and the time so far; it can be closed, and the top bar's status line keeps the time until the import ends. The core prints no progress of its own, so the bar does not claim a share. At the end a sheet says "Imported <n> items" (from the core's "Imported <n> item(s) as <id>") with "Undo this import", or the core's answer when it did not finish.
+- The Import sheet (MEM-S2) opens from Memory, Search, page action "Import". Rows: "Your AI apps' history on this computer" ("Choose": the same list in a sheet, then the same confirmation), "A chat export (.zip)" ("Choose": a file picker for a ChatGPT or Claude export, then `import --export FILE --preview` shown as the core's text and `--yes` after "Import"), "Earlier imports" ("List": `import list`, each with "Undo").
+- Undo: the confirmation sheet "Undo import <id>?" ("Everything that import brought in leaves your memory.", main "Undo import", red) runs `import undo <id>`.
+- A path that holds `" % ! & | < > ^ ( )` is refused before it reaches the core, as every argument to a `.cmd` core is; the sheet says so.
+- Setup's lead question waits while an import runs, because the import stops Memev and choosing the lead needs it running.
+
+### 5.3 Bots and agents, a new tab "Background agents"
+
+- Tabs become "Team", "Connect", "Background agents", "Access".
+- Sentence: "<n> background agents are on." or "No background agent is on."
+- **BB-1 Section "BACKGROUND AGENTS"**, a list from `runner status --json` (`seat`, `enabled`, `max_runs_per_day`, `cmd`, `today`). Each row: the seat, "on · <today> of <max> runs today" or "off", and a "Stop" button on a row that is on.
+  - Act, "Stop": the confirmation sheet "Stop the background agents for <seat>?" ("It takes no more turns until you start it again. Work it already did is kept.", main "Stop", red), then `runner off <seat>`.
+- **BB-2 Page action "Add background agents"** (amber). It opens **BB-S1**, a sheet "Add background agents". Fields: "App" (a choice of the apps that are connected, from BC-8), "How many agents" (1 to 20), "Most runs a day" (required, a whole number of 1 or more; the sheet will not start without it). Note: "Each agent takes one unattended turn when the lead posts it a task, until the day's limit." Main button "Start" (amber). The sheet is the confirmation.
+  - Act: `runner on <app> --agents N --max-runs-per-day M`. The core's answer is shown; it can refuse, for example when it knows no headless command for that app.
+- The runner takes turns while `runner watch <app>` runs. The trial core has no service that keeps it running, so the tab says so in one line.
+
+### 5.4 Choose the lead, in setup
+
+- Setup's last question: "Which app should lead?" Rows: the seats from `bus roster --json` (`seats[].seat`, `client`, `state`), one to pick. Main button "Make <seat> the lead" (amber), and "Skip".
+- Act: `bus operator <seat>`, on this computer only, after the person pressed the button.
+
+### 5.6 Chats: talk with the lead from your phone
+
+The trial core at `ceb322f853488ee83162a5d6b39169243bb7ace7` carries the chat bridge (`docs/CHAT.md` in the core). This is a screen of its own, with a menu entry "Chats" after "Bots and agents". No tabs; header rule SH-15.
+
+- Title "Chats". Sentence: "<n> of 4 chat channels are on." or "Every chat channel is off. Each one stays off until you turn it on."
+  - Src: `chat status --json`: `channels[]` with `channel` (`telegram`, `whatsapp`, `discord`, `lark`), `on`, `running`, `seat`, `last_in`, `last_out`, `last_refusal`, `error`; for WhatsApp `enabled`, `linked`, `installed`; for Telegram and Discord `set_up`, `bot`, `paired`; for Lark `set_up`, `paired`, `available`.
+- What is this? words: "Chat channel", "Pairing", "Linked device".
+- Each channel is a section with one row: a glyph (ok when paired or linked and running, live when on and waiting, off when off), the state in plain words ("off", "set up, not paired", "paired · running", "linked · running"), the last message in and out, and the core's error when it has one. Buttons on the row are secondary; the page action "Refresh" is the screen's amber button.
+- **CH-1 Section "TELEGRAM"**, "recommended: Telegram's official bot route".
+  - "Set up": the sheet "Set up Telegram" with one field, "Bot token" (hidden as it is typed), and the note "In Telegram, open @BotFather, send /newbot and follow its steps. Paste the token it gives you. Memev checks it with Telegram and keeps it on this computer only." Main "Set up" (amber). Act: `chat telegram setup --json`, with the token passed in the variable `MEMEV_TELEGRAM_TOKEN`, never as an argument.
+  - "Pair": `chat telegram pair --json` gives `link` and `expires`. The sheet "Pair your phone" shows the link as a QR code and as text, with "Copy the link" and the note "Open it on your phone within 10 minutes and press Start. Only that one person is accepted."
+  - "Turn off": the confirmation sheet "Turn off Telegram?" ("Memev forgets the bot token and the paired person. Nobody reaches the lead through Telegram until you set it up again.", main "Turn off", red), then `chat telegram disable --json`.
+- **CH-2 Section "WHATSAPP"**, tag-free, with the core's warning as a notice on `raise`: "This uses an unofficial WhatsApp connection. WhatsApp's terms do not allow it, and WhatsApp could suspend this number. Memev only messages you, in your own chat."
+  - "Turn on": the sheet "Turn on WhatsApp?" with the warning, a tick box "I understand that WhatsApp could suspend this number", and the note "Memev installs the pinned WhatsApp library on this computer. It writes only to your own "Message yourself" chat." The main button "Turn on" (amber) stays disabled until the box is ticked. Act: `chat whatsapp enable --accept-risk --json`.
+  - "Link": the sheet "Link WhatsApp" runs `chat whatsapp link --json`. Each line it prints with a `qr` is drawn as a QR code (the code changes every few seconds, and the sheet shows the newest); a line with `pairing_code` is shown as text. The note: "On your phone: WhatsApp > Settings > Linked devices > Link a device, then scan this." An optional field "Or link with your phone number" runs it with `--phone <number>` for an 8-character code. The sheet closes on `linked`; Cancel stops the command.
+  - "Turn off": the confirmation sheet "Turn off WhatsApp?" ("Memev logs this computer out of WhatsApp and removes everything it kept here.", main "Turn off", red), then `chat whatsapp disable --json`.
+- **CH-3 Section "Z.AI (DISCORD OR LARK)"**: two rows, Discord and Lark. They share one seat, so only one is on at a time; the core refuses the second.
+  - Discord, "Set up": the sheet "Set up the Discord route" with "Bot token" (hidden), and the ids "Server id", "Channel id", "z.ai bot user id" and "Your user id" (optional). Main "Set up" (amber). Act: `chat discord setup --json` with the token in `MEMEV_DISCORD_TOKEN`, then `chat discord pair --guild G --channel C --zai Z [--person P] --json`. Each id is a long number; the sheet refuses anything else before it runs.
+  - Lark: its state only. The core stores Lark settings, but its connection is not built yet (`available: false`), so the row says so and offers no set-up.
+  - "Turn off" on the row that is on: the confirmation sheet "Turn off the <Discord|Lark> route?" ("z.ai no longer reaches your lead through it, and its settings on this computer are removed.", main "Turn off", red), then `chat discord|lark disable --json`.
+- Every message from a phone reaches the lead as data to read, never as a command; the screen says so in one line under the sections.
+
+### 5.5 What the window may run, added to CLI-CONTRACT.md
+
+`onboarding --json`, `runner status --json`, `import scan --json`, `import list` and `chat status --json` as reads; `connect <id>...`, `disconnect <id>`, `import --source ID ... --yes`, `import --export FILE --preview` and the same with `--yes`, `import undo <id>`, `runner on <app> --agents N --max-runs-per-day M`, `runner off <seat>`, `bus operator <seat>`, and the `chat` commands of 5.6, each only after its sheet.

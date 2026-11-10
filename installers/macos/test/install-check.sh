@@ -14,6 +14,13 @@ cp -R "$mnt/Memev.app" "$t/Applications/"
 hdiutil detach -quiet "$mnt"
 app=$t/Applications/Memev.app
 bin=$app/Contents/Resources/bin/memev
+# The design's fonts reached the image unchanged, with their licences, and the window finds them there.
+for f in SpaceGrotesk-wght.ttf IBMPlexMono-Regular.ttf IBMPlexMono-Medium.ttf OFL-SpaceGrotesk.txt OFL-IBMPlexMono.txt; do
+  grep -F "  $f" "$app/Contents/Resources/fonts/SHA256SUMS" >/dev/null || { echo "the image's font list has no $f" >&2; exit 1; }
+done
+(cd "$app/Contents/Resources/fonts" && shasum -a 256 -c SHA256SUMS >/dev/null) || { echo "a font in the image does not match its SHA-256" >&2; exit 1; }
+"$app/Contents/MacOS/memev-desktop" --fonts | grep -Fx 'font_sans=Space Grotesk' >/dev/null || { echo "the installed window does not use Space Grotesk" >&2; exit 1; }
+"$app/Contents/MacOS/memev-desktop" --fonts | grep -Fx 'font_mono=IBM Plex Mono' >/dev/null || { echo "the installed window does not use IBM Plex Mono" >&2; exit 1; }
 export HOME=$t/home
 unset MEMEV_BIN NODE_OPTIONS NODE_PATH || true
 # No node, npm or memev from this machine: stand-ins that fail come first on PATH.
@@ -50,6 +57,19 @@ if [ "${MEMEV_SKIP_WINDOW:-}" != 1 ]; then
   printf '%s\n' "$(MEMEV_GUIDE=off MEMEV_HEALTH_URL=off MEMEV_SELF_CHECK=1 MEMEV_SELF_CHECK_PAGE=memory MEMEV_SELF_CHECK_QUERY="window reads" "$app/Contents/MacOS/memev-desktop")" | grep -F 'row=the window reads this note' >/dev/null || { echo "memory search did not find the saved note" >&2; exit 1; }
 fi
 "$bin" stop > /dev/null 2>&1 || true
+# Start Memev from the window (owner ruling D-1): its sheet's main button runs the bundled core's start, and the window then
+# reads a running core. The window's own card read can start the core as well, so this proves the start answers 0 and the
+# core runs after it, not which of the two started it.
+if [ "${MEMEV_SKIP_WINDOW:-}" != 1 ]; then
+  sout=$(MEMEV_GUIDE=off MEMEV_HEALTH_URL="http://127.0.0.1:$port/healthz" MEMEV_THEME=light MEMEV_SELF_CHECK=1 MEMEV_SELF_CHECK_START=1 \
+    "$app/Contents/MacOS/memev-desktop") || { printf '%s\n' "$sout" >&2; echo "the start check failed" >&2; exit 1; }
+  printf '%s\n' "$sout"
+  for want in 'start_sheet=Start Memev?|Start Memev' 'start_rc=0' 'start_result=Memev is running' 'start_after=running' 'start_banner=hidden'; do
+    printf '%s\n' "$sout" | grep -Fx "$want" >/dev/null || { echo "start from the window, missing: $want" >&2; exit 1; }
+  done
+  "$bin" status --json >/dev/null || { echo "the core is not running after the window started it" >&2; exit 1; }
+  "$bin" stop > /dev/null 2>&1 || true
+fi
 # The guided first launch, headless, against the app's own core: a fresh notes folder, a note saved and read back, and the
 # overview from the running core. proof is native/macos's build of the shared guide.
 if [ -n "${MEMEV_PROOF:-}" ]; then

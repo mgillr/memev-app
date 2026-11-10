@@ -1,0 +1,6 @@
+{"ok":true,"channels":[
+ {"channel":"telegram","seat_app":"telegram","on":true,"seat":null,"running":false,"last_in":null,"last_out":null,"last_refusal":null,"error":null,"set_up":true,"bot":"memev_fixture_bot","paired":false,"paired_at":null},
+ {"channel":"whatsapp","seat_app":"whatsapp","on":false,"seat":null,"running":false,"last_in":null,"last_out":null,"last_refusal":null,"error":null,"enabled":false,"linked":false,"installed":false},
+ {"channel":"discord","seat_app":"zai","on":false,"seat":null,"running":false,"last_in":null,"last_out":null,"last_refusal":null,"error":null,"set_up":false,"bot":null,"paired":false,"paired_at":null},
+ {"channel":"lark","seat_app":"zai","on":false,"seat":null,"running":false,"last_in":null,"last_out":null,"last_refusal":null,"error":null,"set_up":false,"paired":false,"available":false,"send_as":"bot","read_history":false,"history":null}
+]}

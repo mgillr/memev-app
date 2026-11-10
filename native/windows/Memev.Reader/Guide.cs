@@ -119,6 +119,29 @@ public static class Guide
     return cmds;
   }
 
+  // init and join end with a checklist; when one fails, the lines marked as failed (\u2717) say why, not the last lines
+  static string Failed(string s)
+  {
+    var bad = s.Split('\n').Where((l) => l.TrimStart().StartsWith("\u2717", StringComparison.Ordinal)).Select((l) => l.Trim()).ToArray();
+    return bad.Length > 0 ? string.Join("\n", bad) : s;
+  }
+
+  // The guide's own record, so a person (or a helper on their computer) can see what each setup step did: the command name,
+  // whether it finished, its exit code, how long it took and the scrubbed end of its output. Arguments are not written:
+  // they hold the notes folder and the test phrase. %LOCALAPPDATA%\\Memev\\guide.log, at most about 256 KB.
+  public static void Log(string line)
+  {
+    try
+    {
+      string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Memev");
+      Directory.CreateDirectory(dir);
+      string f = Path.Combine(dir, "guide.log");
+      if (File.Exists(f) && new FileInfo(f).Length > 262144) File.Delete(f);
+      File.AppendAllText(f, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {line}\n");
+    }
+    catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { }
+  }
+
   // A failed command's last output, with a line that names a token cut there, so its value is never shown.
   static string Scrub(string s)
   {
@@ -133,15 +156,22 @@ public static class Guide
   {
     detail = "";
     var cmds = Build(plan, out string why);
-    if (cmds == null) { detail = why.Length > 0 ? why : "The steps are not ready."; return false; }
+    if (cmds == null) { detail = why.Length > 0 ? why : "The steps are not ready."; Log($"plan not ready: {detail}"); return false; }
+    Log($"apply: {cmds.Count} steps ({string.Join(", ", cmds.Select((c) => c[0]))})");
     foreach (string[] args in cmds)
     {
-      var r = Core.Capture(bin, args, args[0] == "init" ? 20000 : 10000);
+      // a first init on Windows starts Node and git while the virus scanner checks them, and makes the vault: it can take minutes
+      int limit = args[0] == "init" ? 300000 : args[0] == "join" ? 300000 : 60000;
+      var clock = System.Diagnostics.Stopwatch.StartNew();
+      var r = Core.Capture(bin, args, limit, null, true);
+      Log($"step {args[0]}: done={r.Done} exit={r.ExitCode} ms={clock.ElapsedMilliseconds} out: {Scrub(Failed(r.Output)).Replace("\n", " | ")}");
+      if (!r.Done) { detail = $"The command {args[0]} took longer than {limit / 1000} seconds, so it was stopped. Try again; if it happens twice, open Health."; return false; }
       if (r.Done && r.ExitCode == 126) { detail = "That folder, address or code holds a character this window will not pass to the core: \" % ! & | < > ^ ( ). Choose one without it."; return false; }
-      if (!r.Done || r.ExitCode != 0) { detail = $"The command {args[0]} stopped. {Scrub(r.Output)}".TrimEnd(); return false; }
+      if (!r.Done || r.ExitCode != 0) { detail = $"The command {args[0]} stopped. {Scrub(Failed(r.Output))}".TrimEnd(); return false; }
       if (args[0] == "recall" && !r.Output.Contains(plan.Phrase, StringComparison.Ordinal)) { detail = "Recall did not return the note just saved."; return false; }
     }
     detail = why;
+    Log($"apply ok{(why.Length > 0 ? ": " + why : "")}");
     return true;
   }
 }

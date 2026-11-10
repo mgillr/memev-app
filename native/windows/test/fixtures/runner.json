@@ -1,0 +1,4 @@
+[
+  {"seat":"claude-code/2","enabled":true,"max_runs_per_day":5,"cmd":"claude -p","today":1},
+  {"seat":"codex/2","enabled":false,"max_runs_per_day":3,"cmd":"codex exec","today":0}
+]

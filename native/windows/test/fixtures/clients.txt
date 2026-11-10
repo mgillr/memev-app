@@ -1,0 +1,4 @@
+  ✓ Claude Code     connected (hooks + MCP)
+  · Codex CLI       found, not connected
+    Gemini CLI      not found
+    Windsurf        not found

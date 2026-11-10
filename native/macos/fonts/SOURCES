@@ -1,0 +1,10 @@
+The fonts rev2 names, unchanged from the Google Fonts repository at commit 86aced91de05cd4f96a06838124cca45be337b2b.
+Each file's SHA-256 is in SHA256SUMS; make checks them before the fonts go into Memev.app.
+Both families are under the SIL Open Font License 1.1. Each licence ships next to its font, as the licence asks.
+
+SpaceGrotesk-wght.ttf     https://github.com/google/fonts/blob/86aced91de05cd4f96a06838124cca45be337b2b/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf
+                          (upstream name SpaceGrotesk[wght].ttf, one variable font, weights 300 to 700)
+OFL-SpaceGrotesk.txt      https://github.com/google/fonts/blob/86aced91de05cd4f96a06838124cca45be337b2b/ofl/spacegrotesk/OFL.txt
+IBMPlexMono-Regular.ttf   https://github.com/google/fonts/blob/86aced91de05cd4f96a06838124cca45be337b2b/ofl/ibmplexmono/IBMPlexMono-Regular.ttf
+IBMPlexMono-Medium.ttf    https://github.com/google/fonts/blob/86aced91de05cd4f96a06838124cca45be337b2b/ofl/ibmplexmono/IBMPlexMono-Medium.ttf
+OFL-IBMPlexMono.txt       https://github.com/google/fonts/blob/86aced91de05cd4f96a06838124cca45be337b2b/ofl/ibmplexmono/OFL.txt
