@@ -1,6 +1,6 @@
 {
   "memev_repository": "https://github.com/mgillr/memev.git",
-  "memev_commit": "043854de5fce639531294a4b569f239baab235eb",
+  "memev_commit": "f5c2254e9e97a5f9ce04513ad0c1d8de619a7f6f",
   "version": "0.1.0",
   "node": {
     "version": "22.23.4",
