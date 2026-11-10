@@ -52,7 +52,9 @@ public sealed class ConnectOutcome
   public string Shown => !Ok ? "not connected" : Unverified ? "configured · not yet seen to load it" : Status == "already" ? "already connected" : "connected";
 }
 
-public enum ConnectKind { AllConnected, SomeFailed, Unreported }
+/// AllConnected: every app reported connected and verified. SetUp: every app's settings were written and at least one is not
+/// verified yet (configured): not a failure and nothing to retry, but a config write alone is never reported as connected.
+public enum ConnectKind { AllConnected, SetUp, SomeFailed, Unreported }
 
 /// What one connect run came to, for the ids it was sent. All connected only when the core exited 0 and reported every id as
 /// connected: a core that prints no outcome for an id it was sent (one that ignores --json and prints a text line) is
@@ -62,9 +64,12 @@ public sealed class ConnectSummary
   public ConnectKind Kind;
   public List<string> Missing = new();       // sent, and no outcome came back
   public List<string> NotConnected = new();  // failed or missing: what Fix the safe ones tries again
+  /// Nothing failed and nothing is missing: AllConnected or SetUp.
+  public bool Done => Kind is ConnectKind.AllConnected or ConnectKind.SetUp;
   public string Title => Kind switch
   {
     ConnectKind.AllConnected => "Connected",
+    ConnectKind.SetUp => "Set up: open each app once to confirm",
     ConnectKind.Unreported => "Memev did not report the result",
     _ => "Not every app connected",
   };
@@ -285,7 +290,8 @@ public static class GuideModel
     var failed = ids.Where((id) => byId.TryGetValue(id, out var o) && !o.Ok).ToList();
     sum.NotConnected = failed.Concat(sum.Missing).ToList();
     sum.Kind = ids.Count == 0 || sum.Missing.Count > 0 ? ConnectKind.Unreported
-      : failed.Count > 0 || code != 0 ? ConnectKind.SomeFailed : ConnectKind.AllConnected;
+      : failed.Count > 0 || code != 0 ? ConnectKind.SomeFailed
+      : ids.Any((id) => byId[id].Unverified) ? ConnectKind.SetUp : ConnectKind.AllConnected;
     return sum;
   }
 
@@ -294,6 +300,7 @@ public static class GuideModel
   public static string ResultDetail(ConnectSummary sum, IEnumerable<FixItem> fixes)
   {
     if (sum.Kind == ConnectKind.AllConnected) return "";
+    if (sum.Kind == ConnectKind.SetUp) return "Open each app once: its first session shows that it loads Memev.";
     string first = FixLines(fixes).FirstOrDefault() ?? "Health shows Memev's checks.";
     string head = sum.Kind == ConnectKind.Unreported
       ? $"Memev did not report the result for {string.Join(", ", sum.Missing)}."

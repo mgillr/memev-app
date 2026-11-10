@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 
 const project = 'native/windows/Memev.Reader.Check';
 const CASES = [
-  ['T1-c01', 'connect-list'], ['T1-c01', 'connect-onestep'], ['T1-c01', 'connect-selected'], ['T1-c01', 'connect-result'], ['T1-c01', 'connect-unreported'], ['T1-c01', 'configured-unverified'], ['T1-c01', 'already-connected'],
+  ['T1-c01', 'connect-list'], ['T1-c01', 'connect-onestep'], ['T1-c01', 'connect-selected'], ['T1-c01', 'connect-result'], ['T1-c01', 'connect-unreported'], ['T1-c01', 'configured-unverified'], ['T1-c01', 'all-configured-title'], ['T1-c01', 'already-connected'],
   ['T2-c01', 'order'], ['T2-c01', 'lead-registered'], ['T2-c01', 'lead-retry'],
   ['T3-c01', 'fix-text'], ['T3-c01', 'fix-retry'], ['T3-c01', 'fix-manual-skipped'],
 ];

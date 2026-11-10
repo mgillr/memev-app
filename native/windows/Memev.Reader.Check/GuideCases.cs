@@ -10,7 +10,7 @@ using Memev.Reader;
 
 static class GuideCases
 {
-  public static readonly string[] Names = { "connect-list", "connect-onestep", "connect-selected", "connect-result", "connect-unreported", "configured-unverified", "already-connected", "order", "lead-registered", "lead-retry", "fix-text", "fix-retry", "fix-manual-skipped" };
+  public static readonly string[] Names = { "connect-list", "connect-onestep", "connect-selected", "connect-result", "connect-unreported", "configured-unverified", "all-configured-title", "already-connected", "order", "lead-registered", "lead-retry", "fix-text", "fix-retry", "fix-manual-skipped" };
 
   const string Discover = "[\n" +
     "{\"id\":\"claude-code\",\"name\":\"Claude Code\",\"found\":true,\"evidence\":\"path\",\"install_path\":\"\",\"automation\":\"auto\",\"step\":\"\"},\n" +
@@ -182,7 +182,22 @@ static class GuideCases
         expect(apps.Count == 2 && apps.All((a) => a.Ok && a.Unverified), $"{name}: configured counts as connected, not verified");
         expect(apps.All((a) => a.Shown == "configured · not yet seen to load it"), $"{name}: it is shown as configured ({string.Join(" | ", apps.Select((a) => a.Shown))})");
         var sum = GuideModel.Summarize(sent, code, apps);
-        expect(sum.Kind == ConnectKind.AllConnected && sum.NotConnected.Count == 0, $"{name}: never a failure, and nothing to retry ({sum.Kind})");
+        expect(sum.Kind == ConnectKind.SetUp && sum.Done && sum.NotConnected.Count == 0, $"{name}: never a failure, and nothing to retry ({sum.Kind})");
+        return true;
+      }
+      case "all-configured-title":
+      {
+        // a config write alone is never reported as connected: the title says Connected only when every app is verified
+        string[] sent = { "chatgpt-desktop", "codex" };
+        var configured = new[] { new ConnectOutcome { Id = "chatgpt-desktop", Status = "configured", Verified = false }, new ConnectOutcome { Id = "codex", Status = "configured", Verified = false } };
+        var sum = GuideModel.Summarize(sent, 0, configured);
+        expect(sum.Title == "Set up: open each app once to confirm" && sum.Title != "Connected", $"{name}: all configured is set up, not connected ({sum.Title})");
+        expect(sum.Done && sum.NotConnected.Count == 0, $"{name}: no failure and no retry");
+        expect(GuideModel.ResultDetail(sum, new List<FixItem>()).StartsWith("Open each app once"), $"{name}: the detail asks to open each app");
+        var mixed = GuideModel.Summarize(sent, 0, new[] { new ConnectOutcome { Id = "chatgpt-desktop", Status = "configured", Verified = false }, new ConnectOutcome { Id = "codex", Status = "added" } });
+        expect(mixed.Kind == ConnectKind.SetUp, $"{name}: one unverified app is enough to not say Connected ({mixed.Kind})");
+        var verified = GuideModel.Summarize(sent, 0, new[] { new ConnectOutcome { Id = "chatgpt-desktop", Status = "added" }, new ConnectOutcome { Id = "codex", Status = "already" } });
+        expect(verified.Title == "Connected", $"{name}: every app verified is Connected");
         return true;
       }
       case "already-connected":

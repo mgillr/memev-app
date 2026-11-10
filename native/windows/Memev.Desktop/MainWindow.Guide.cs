@@ -231,7 +231,7 @@ sealed partial class MainWindow
         {
           var (code, output) = Pages.GuideRun(args);
           var (apps, _) = GuideModel.ParseConnect(output);
-          var fixes = GuideModel.Summarize(args.Skip(1).Where((a) => a != "--json"), code, apps).Kind != ConnectKind.AllConnected ? GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output) : new List<FixItem>();
+          var fixes = GuideModel.Summarize(args.Skip(1).Where((a) => a != "--json"), code, apps).Done ? new List<FixItem>() : GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output);
           return (code, output, apps, fixes);
         }).ContinueWith((t) =>
         {
@@ -258,7 +258,7 @@ sealed partial class MainWindow
     var m = new SheetModel
     {
       Title = sum.Title,
-      Note = allOk ? "Open a new session in each app: it starts with your memory." : sum.Kind == ConnectKind.Unreported ? "The core did not say how each app went, so Memev does not call them connected. AI apps shows each app's state; Fix the safe ones runs the fixes that change nothing of yours, then tries them once more." : "The apps below that did not connect say why. Fix the safe ones runs the fixes that change nothing of yours, then tries those apps once more.",
+      Note = allOk ? "Open a new session in each app: it starts with your memory." : sum.Kind == ConnectKind.SetUp ? "Memev wrote each app's settings. An app that shares its settings with another is confirmed only when a session shows it loads them: open each app once." : sum.Kind == ConnectKind.Unreported ? "The core did not say how each app went, so Memev does not call them connected. AI apps shows each app's state; Fix the safe ones runs the fixes that change nothing of yours, then tries them once more." : "The apps below that did not connect say why. Fix the safe ones runs the fixes that change nothing of yours, then tries those apps once more.",
       Rows = rows, Source = "memev connect --json · memev doctor --json", Main = "Close",
     };
     if (!allOk && failed.Count > 0 && GuideModel.OfferSafeFix(fixes))
@@ -273,8 +273,8 @@ sealed partial class MainWindow
           var retry = t.Status == TaskStatus.RanToCompletion ? t.Result.Retry : new List<ConnectOutcome>();
           Guide.Log($"fix the safe ones: retry={string.Join(",", retry.Select((a) => $"{a.Id}={a.Status}"))}");
           var again = GuideModel.Summarize(failed, 0, retry);
-          var fixesAfter = again.Kind != ConnectKind.AllConnected ? GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output) : new List<FixItem>();
-          GuideConnectResult(failed, retry, fixesAfter, again.Kind == ConnectKind.AllConnected ? 0 : 1, "");
+          var fixesAfter = again.Done ? new List<FixItem>() : GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output);
+          GuideConnectResult(failed, retry, fixesAfter, again.Done ? 0 : 1, "");
         }, TaskScheduler.FromCurrentSynchronizationContext());
       };
     }
