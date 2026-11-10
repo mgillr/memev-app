@@ -261,6 +261,30 @@ static class Pages
     return (apps, true);
   }
 
+  /// The setup guide's Connect rows: every app `discover --json` found, decided by Memev.Reader's GuideModel. A core without
+  /// discover answers with onboarding --json instead. Read is false when neither answered.
+  public static (List<ConnectRow> Rows, bool Read) Discovered()
+  {
+    foreach (string[] args in new[] { new[] { "discover", "--json" }, new[] { "onboarding", "--json" } })
+    {
+      var (code, output) = CoreCall.Run(args, 60000);
+      if (code < 0 || code == 126 || code == 127) continue;
+      var apps = GuideModel.ParseApps(output);
+      if (apps.Count == 0 && !(code == 0 && GuideModel.Parse(output) != null)) continue;
+      // discover says what is installed, not what is connected: onboarding --json gives the connection state
+      if (args[0] == "discover")
+      {
+        var (oc, ob) = CoreCall.Run(new[] { "onboarding", "--json" }, 60000);
+        if (oc >= 0 && oc != 126 && oc != 127) apps = GuideModel.MarkConnected(apps, ob);
+      }
+      return (GuideModel.Rows(apps), true);
+    }
+    return (new List<ConnectRow>(), false);
+  }
+
+  /// The core as Memev.Reader's GuideModel runs it, with a limit long enough for connect and start.
+  public static (int Code, string Output) GuideRun(string[] args) => CoreCall.Run(args, 120000);
+
   /// The count of clients rows that read "not found" (BC-10). Text only.
   public static int NotFound()
   {

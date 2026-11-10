@@ -223,13 +223,60 @@ static class Program
     return 0;
   }
 
+  // `guide-probe <memev>`: the guide's Connect, fix and lead decisions over a real core's own answers. It connects the first
+  // app Memev connects by itself, so run it only against a sandbox home.
+  static int GuideProbe(string bin)
+  {
+    (int, string) Run(string[] a) { var r = Core.Capture(bin, a, 120000); return r.Done ? (r.ExitCode, r.Output) : (-1, ""); }
+    var (dc, discover) = Run(new[] { "discover", "--json" });
+    var apps = GuideModel.MarkConnected(GuideModel.ParseApps(discover), Run(new[] { "onboarding", "--json" }).Item2);
+    var rows = GuideModel.Rows(apps);
+    Console.WriteLine($"discover_exit={dc} found={rows.Count} auto={rows.Count((r) => r.App.Automation == "auto")} one_step={rows.Count((r) => r.App.Automation == "one-step")} none={rows.Count((r) => r.App.Automation == "none")} connected={rows.Count((r) => r.App.Connected)} ticked={rows.Count((r) => r.Ticked)}");
+    foreach (var r in rows) Console.WriteLine($"  row {r.App.Id} automation={r.App.Automation} tick={(r.HasTick ? (r.Ticked ? "on" : "off") : "none")} enabled={r.Enabled} state={r.State}");
+    var first = rows.FirstOrDefault((r) => r.HasTick && r.Enabled && r.Ticked);
+    if (first == null) { Console.Error.WriteLine("no app to connect"); return 1; }
+    foreach (var r in rows) if (r != first) r.Ticked = false;
+    string[] args = GuideModel.ConnectArgs(rows)!;
+    var (cc, connect) = Run(args);
+    var (outcomes, op) = GuideModel.ParseConnect(connect);
+    var sum = GuideModel.Summarize(args.Skip(1).Where((a) => a != "--json"), cc, outcomes);
+    Console.WriteLine($"connect: {string.Join(' ', args)} exit={cc} kind={sum.Kind} outcomes={string.Join(",", outcomes.Select((o) => $"{o.Id}={o.Status}|{o.Shown}|seat={o.Seat}"))}");
+    var fixes = GuideModel.ParseDoctor(Run(new[] { "doctor", "--json" }).Item2);
+    Console.WriteLine($"doctor: not_ok={fixes.Count} safe={fixes.Count((f) => f.Safe)} manual={fixes.Count((f) => f.Manual)} offer_safe_fix={GuideModel.OfferSafeFix(fixes)}");
+    foreach (string l in GuideModel.FixLines(fixes).Take(6)) Console.WriteLine($"  fix {l}");
+    var again = GuideModel.Rows(GuideModel.MarkConnected(GuideModel.ParseApps(Run(new[] { "discover", "--json" }).Item2), Run(new[] { "onboarding", "--json" }).Item2));
+    var now = again.First((r) => r.App.Id == first.App.Id);
+    Console.WriteLine($"after: {now.App.Id} connected={now.App.Connected} enabled={now.Enabled} in_next_connect={(GuideModel.ConnectArgs(again)?.Contains(now.App.Id) ?? false)}");
+    var lead = GuideModel.LoadLead(Run);
+    Console.WriteLine($"lead: read={lead.Read} started={lead.Started} seats={string.Join(",", lead.Seats.Select((x) => $"{x.Seat}:{x.State}"))} retry={lead.Retry}");
+    bool ok = dc == 0 && sum.Kind != ConnectKind.Unreported && now.App.Connected && lead.Read;
+    Console.WriteLine(ok ? "guide-probe=ok" : "guide-probe=failed");
+    return ok ? 0 : 1;
+  }
+
   static int Main(string[] args)
   {
     if (args.Length == 3 && args[0] == "proof") return Proof(args[1], args[2]);
+    if (args.Length == 2 && args[0] == "guide-probe") return GuideProbe(args[1]);
     string tmp = Path.Combine(Path.GetTempPath(), "memev-read-" + Guid.NewGuid().ToString("N").Substring(0, 8));
     Directory.CreateDirectory(tmp);
+    // one guide case: 'ok <name>' only after its own checks passed; an unknown name is an error
+    if (args.Length > 0 && args[0] == "--case")
+    {
+      try
+      {
+        if (args.Length != 2 || !GuideCases.Names.Contains(args[1])) { Console.Error.WriteLine($"unknown case; the cases are {string.Join(", ", GuideCases.Names)}"); return 2; }
+        GuideCases.Run(args[1], Expect, tmp);
+        if (failed > 0) { Console.Error.WriteLine($"{failed} check(s) of {args[1]} failed"); return 1; }
+        Console.WriteLine($"ok {args[1]}");
+        return 0;
+      }
+      finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
+    }
+    if (args.Length > 0) { Console.Error.WriteLine("usage: Memev.Reader.Check [--case <name> | proof <memev> <notes folder> | guide-probe <memev>]"); Directory.Delete(tmp, true); return 2; }
     try
     {
+      foreach (string name in GuideCases.Names) GuideCases.Run(name, Expect, tmp);
       TestJson();
       TestUrls();
       TestHttp();

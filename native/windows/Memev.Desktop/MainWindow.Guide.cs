@@ -33,6 +33,8 @@ sealed partial class MainWindow
   NavButton? choiceThis, choiceOther;
   List<SeatRow> leadSeats = new();
   string leadPick = "";
+  List<ConnectRow> guideConnect = new();
+  GuideFlow guideFlow = new();
   public const int StepConnect = 4, StepImport = 5, StepLead = 6;
 
   static string MarkerPath() => Path.Combine(ConfigDir(), "desktop-first-launch-done");
@@ -154,52 +156,154 @@ sealed partial class MainWindow
     Render();
   }
 
-  /// The apps the core found (onboarding --json), read off the window's thread, drawn with ticks.
+  /// Every app the core found (discover --json, decided by GuideModel), read off the window's thread: auto apps ticked, one-step
+  /// apps with their step and a Copy button, the rest found and not connectable.
   void GuideLoadApps()
   {
+    guideFlow = new GuideFlow();
     guideRows.Children.Clear();
     guideRows.Children.Add(Note("Reading the apps on this computer."));
     primary.IsEnabled = false;
     guideBusy = true;
-    Task.Run(Pages.Apps).ContinueWith((t) =>
+    Task.Run(Pages.Discovered).ContinueWith((t) =>
     {
       guideBusy = false;
-      var (apps, read) = t.Status == TaskStatus.RanToCompletion ? t.Result : (new List<AppItem>(), false);
-      var d = pageData.GetValueOrDefault("bots") ?? new PageData();
-      d.Apps = apps;
-      d.AppsRead = read;
-      pageData["bots"] = d;
-      ResetTicks("bots");
+      var (rows, read) = t.Status == TaskStatus.RanToCompletion ? t.Result : (new List<ConnectRow>(), false);
+      guideConnect = rows;
+      Guide.Log($"connect step: read={read} found={rows.Count} ticked={rows.Count((r) => r.Ticked)}");
       guideRows.Children.Clear();
-      var shown = new StackPanel();
-      BuildConnect(shown, d);
-      guideRows.Children.Add(shown);
+      var list = new ListBoxView();
+      if (!read) list.Add(new RowView(null, "The list of AI apps did not answer.", "Press Skip, and connect apps later from AI apps."));
+      else if (rows.Count == 0) list.Add(new RowView(null, "No AI apps were found on this computer.", "Install one, then connect it later from AI apps."));
+      foreach (ConnectRow row in rows)
+      {
+        UIElement lead;
+        MButton? copy = null;
+        if (row.HasTick)
+        {
+          var box = new CheckBox { IsChecked = row.Ticked, IsEnabled = row.Enabled, VerticalAlignment = VerticalAlignment.Center };
+          AutomationProperties.SetName(box, row.App.Name);
+          ConnectRow r = row;
+          box.Checked += (_, _) => { r.Ticked = true; GuideConnectLabel(); };
+          box.Unchecked += (_, _) => { r.Ticked = false; GuideConnectLabel(); };
+          lead = box;
+        }
+        else
+        {
+          lead = new Border { Width = 16 };
+          string text = row.Copy;
+          if (text.Length > 0) copy = new MButton("Copy", ButtonStyleKind.Secondary, onPress: () => { try { Clipboard.SetText(text); statusLine.Text = "Copied."; } catch (System.Runtime.InteropServices.ExternalException) { statusLine.Text = "The clipboard is busy; try again."; } });
+        }
+        list.Add(new RowView(row.App.Automation == "auto" ? null : GlyphKind.Off, row.App.Name, row.State, technical ? $"memev connect {row.App.Id}" : "", button: copy, tech: technical, lead: lead));
+      }
+      guideRows.Children.Add(list);
       if (guideStep == StepConnect) GuideConnectLabel();
     }, TaskScheduler.FromCurrentSynchronizationContext());
   }
 
   void GuideConnectLabel()
   {
-    int n = Ticked().Count;
+    int n = (GuideModel.ConnectArgs(guideConnect)?.Length ?? 2) - 2;
     primary.Text = n == 0 ? "Continue" : n == 1 ? "Connect 1 app" : $"Connect {n} apps";
-    primary.IsEnabled = true;
+    primary.IsEnabled = !guideFlow.Connecting;
     EnforceAmber();
+    Render();
   }
 
+  /// One sheet that names the ticked apps; the connect runs only after it, and the guide moves on only when it has ended. A
+  /// result that is not all connected lists each app's outcome and seat, the doctor's fix text, and Fix the safe ones.
+  void GuideConnectSheet(string[] args)
+  {
+    var names = guideConnect.Where((r) => args.Contains(r.App.Id)).Select((r) => r.App.Name).ToList();
+    Present(new SheetModel
+    {
+      Title = names.Count == 1 ? $"Connect {names[0]}?" : $"Connect {names.Count} AI apps?",
+      Note = "Memev adds itself to the settings of each app below and keeps a copy of the old settings first. Each app gets its own seat on the message bus. You can disconnect any of them later.",
+      Rows = names.Select((n) => new DetailRow(n, "", Glyph: GlyphKind.Ok)).ToList(),
+      Source = "memev " + string.Join(' ', args), Main = "Connect",
+      OnMain = (h) =>
+      {
+        guideFlow.ConnectStarted();
+        GuideConnectLabel();
+        h.Status.Text = "Connecting. This can take a few seconds.";
+        if (h.MainButton != null) h.MainButton.IsEnabled = false;
+        Task.Run(() =>
+        {
+          var (code, output) = Pages.GuideRun(args);
+          var (apps, _) = GuideModel.ParseConnect(output);
+          var fixes = GuideModel.Summarize(args.Skip(1).Where((a) => a != "--json"), code, apps).Done ? new List<FixItem>() : GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output);
+          return (code, output, apps, fixes);
+        }).ContinueWith((t) =>
+        {
+          var (code, output, apps, fixes) = t.Status == TaskStatus.RanToCompletion ? t.Result : (-1, "", new List<ConnectOutcome>(), new List<FixItem>());
+          Guide.Log($"connect: exit={code} apps={string.Join(",", apps.Select((a) => $"{a.Id}={a.Status}"))} fixes={fixes.Count}");
+          guideFlow.ConnectEnded();
+          GuideConnectResult(args.Skip(1).Where((a) => a != "--json").ToList(), apps, fixes, code, output);
+          GuideShow(StepImport);
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+      },
+    });
+  }
+
+  void GuideConnectResult(List<string> sent, List<ConnectOutcome> apps, List<FixItem> fixes, int code, string output)
+  {
+    var sum = GuideModel.Summarize(sent, code, apps);
+    var failed = sum.NotConnected;
+    var rows = apps.Select((a) => new DetailRow(guideConnect.FirstOrDefault((r) => r.App.Id == a.Id)?.App.Name ?? a.Id,
+      a.Ok ? (a.Seat.Length > 0 ? $"{a.Shown} · seat {a.Seat}" : a.Shown) : $"not connected{(a.Detail.Length > 0 ? " · " + a.Detail : "")}",
+      Glyph: a.Ok && !a.Unverified ? GlyphKind.Ok : a.Ok ? GlyphKind.Off : GlyphKind.Warn)).ToList();
+    rows.AddRange(sum.Missing.Select((id) => new DetailRow(guideConnect.FirstOrDefault((r) => r.App.Id == id)?.App.Name ?? id, "Memev did not report the result", Glyph: GlyphKind.Warn)));
+    rows.AddRange(GuideModel.FixLines(fixes).Select((l) => new DetailRow("To fix", l, Glyph: GlyphKind.Warn)));
+    bool allOk = sum.Kind == ConnectKind.AllConnected;
+    var m = new SheetModel
+    {
+      Title = sum.Title,
+      Note = allOk ? "Open a new session in each app: it starts with your memory." : sum.Kind == ConnectKind.SetUp ? "Memev wrote each app's settings. An app that shares its settings with another is confirmed only when a session shows it loads them: open each app once." : sum.Kind == ConnectKind.Unreported ? "The core did not say how each app went, so Memev does not call them connected. AI apps shows each app's state; Fix the safe ones runs the fixes that change nothing of yours, then tries them once more." : "The apps below that did not connect say why. Fix the safe ones runs the fixes that change nothing of yours, then tries those apps once more.",
+      Rows = rows, Source = "memev connect --json · memev doctor --json", Main = "Close",
+    };
+    if (!allOk && failed.Count > 0 && GuideModel.OfferSafeFix(fixes))
+    {
+      m.Second = "Fix the safe ones";
+      m.OnSecond = (h) =>
+      {
+        h.Status.Text = "Fixing, then trying again.";
+        foreach (MButton b in h.OtherButtons) b.IsEnabled = false;
+        Task.Run(() => GuideModel.FixAndRetry(Pages.GuideRun, failed)).ContinueWith((t) =>
+        {
+          var retry = t.Status == TaskStatus.RanToCompletion ? t.Result.Retry : new List<ConnectOutcome>();
+          Guide.Log($"fix the safe ones: retry={string.Join(",", retry.Select((a) => $"{a.Id}={a.Status}"))}");
+          var again = GuideModel.Summarize(failed, 0, retry);
+          var fixesAfter = again.Done ? new List<FixItem>() : GuideModel.ParseDoctor(Pages.GuideRun(new[] { "doctor", "--json" }).Output);
+          GuideConnectResult(failed, retry, fixesAfter, again.Done ? 0 : 1, "");
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+      };
+    }
+    Present(m);
+    if (apps.Count == 0 && output.Length > 0) sheet.ShowOutput(Pages.Answer(output));
+    guideDetail.Text = GuideModel.ResultDetail(sum, fixes);
+  }
+
+  /// The lead step reads the roster with Memev running (it starts Memev when it is not): each seat registered at connect is a
+  /// choice, and with none the step offers Retry.
   void GuideLoadSeats()
   {
     guideRows.Children.Clear();
-    guideRows.Children.Add(Note("Reading the seats on the message bus."));
+    guideRows.Children.Add(Note("Starting Memev if it is not running, then reading the seats on the message bus."));
     primary.IsEnabled = false;
     guideBusy = true;
-    Task.Run(() => CoreCall.JsonIfRunning(new[] { "bus", "roster", "--json" }) as System.Text.Json.Nodes.JsonObject).ContinueWith((t) =>
+    Task.Run(() => GuideModel.LoadLead(Pages.GuideRun)).ContinueWith((t) =>
     {
       guideBusy = false;
-      if (t.Status == TaskStatus.RanToCompletion && t.Result != null) roster = t.Result;
-      leadSeats = Pages.Seats(roster);
+      var lc = t.Status == TaskStatus.RanToCompletion ? t.Result : new LeadChoice();
+      Guide.Log($"lead step: read={lc.Read} started={lc.Started} seats={lc.Seats.Count}");
+      leadSeats = lc.Seats.Select((x) => new SeatRow(x.Seat, x.Client, x.State, x.Lead)).ToList();
       guideRows.Children.Clear();
       var list = new ListBoxView();
-      if (leadSeats.Count == 0) list.Add(new RowView(GlyphKind.Off, "No app has a seat yet.", "Each connected app gets a seat on its first session. Skip this, and choose the lead later with memev bus operator."));
+      if (lc.Retry)
+      {
+        var retry = new MButton("Retry", ButtonStyleKind.Secondary, onPress: GuideLoadSeats);
+        list.Add(new RowView(GlyphKind.Off, lc.Read ? "No app has a seat yet." : "The message bus did not answer.", "A connected app gets its seat when it connects, or on its first session. Press Retry, or skip this and choose the lead later with memev bus operator.", button: retry));
+      }
       leadPick = leadSeats.FirstOrDefault((x) => x.Lead)?.Seat ?? leadSeats.FirstOrDefault()?.Seat ?? "";
       foreach (SeatRow seat in leadSeats)
       {
@@ -284,7 +388,10 @@ sealed partial class MainWindow
         RunApply("The check did not pass.");
         return;
       case StepConnect:
-        if (Ticked().Count > 0) ConnectSheet();
+        // the import step shows only when the connect run has ended (GuideConnectSheet moves on when it ends)
+        if (guideFlow.Connecting) { guideDetail.Text = "Connecting. The next step shows when it is done."; return; }
+        if (GuideModel.ConnectArgs(guideConnect) is string[] connectArgs) { GuideConnectSheet(connectArgs); return; }
+        guideFlow.Next();
         GuideShow(StepImport);
         return;
       case StepImport:
