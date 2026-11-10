@@ -10,7 +10,7 @@ using Memev.Reader;
 
 static class GuideCases
 {
-  public static readonly string[] Names = { "connect-list", "connect-onestep", "connect-selected", "connect-result", "connect-unreported", "order", "lead-registered", "lead-retry", "fix-text", "fix-retry" };
+  public static readonly string[] Names = { "connect-list", "connect-onestep", "connect-selected", "connect-result", "connect-unreported", "configured-unverified", "already-connected", "order", "lead-registered", "lead-retry", "fix-text", "fix-retry", "fix-manual-skipped" };
 
   const string Discover = "[\n" +
     "{\"id\":\"claude-code\",\"name\":\"Claude Code\",\"found\":true,\"evidence\":\"path\",\"install_path\":\"\",\"automation\":\"auto\",\"step\":\"\"},\n" +
@@ -46,6 +46,7 @@ static class GuideCases
       File.WriteAllText(Path.Combine(Dir, "connect.json"), Connected);
       File.WriteAllText(Path.Combine(Dir, "doctor.json"), Doctor);
       File.WriteAllText(Path.Combine(Dir, "roster.json"), RosterOne);
+      File.WriteAllText(Path.Combine(Dir, "onboarding.json"), "[]\n");
       if (running) File.WriteAllText(Path.Combine(Dir, "started"), "");
       if (OperatingSystem.IsWindows())
       {
@@ -54,7 +55,7 @@ static class GuideCases
         {
           "@echo off", "echo %*>>\"%~dp0calls.log\"",
           "if \"%~1\"==\"status\" goto status", "if \"%~1\"==\"start\" goto start", "if \"%~1\"==\"discover\" goto show",
-          "if \"%~1\"==\"connect\" goto show", "if \"%~1\"==\"doctor\" goto doctor", "if \"%~1\"==\"bus\" goto bus", "exit /b 2",
+          "if \"%~1\"==\"connect\" goto show", "if \"%~1\"==\"onboarding\" goto show", "if \"%~1\"==\"doctor\" goto doctor", "if \"%~1\"==\"bus\" goto bus", "exit /b 2",
           ":status", "if not exist \"%~dp0started\" exit /b 1", "echo {\"running\":true}", "exit /b 0",
           ":start", "type nul>\"%~dp0started\"", "exit /b 0",
           ":show", "type \"%~dp0%~1.json\"", "exit /b 0",
@@ -69,7 +70,7 @@ static class GuideCases
           "case \"$1\" in\n" +
           "  status) [ -f \"$d/started\" ] || exit 1; echo '{\"running\":true}' ;;\n" +
           "  start) : > \"$d/started\" ;;\n" +
-          "  discover|connect) cat \"$d/$1.json\" ;;\n" +
+          "  discover|connect|onboarding) cat \"$d/$1.json\" ;;\n" +
           "  doctor) [ \"$2\" = \"--fix\" ] && exit 0; cat \"$d/doctor.json\" ;;\n" +
           "  bus) cat \"$d/roster.json\" ;;\n" +
           "  *) exit 2 ;;\nesac\n");
@@ -170,6 +171,37 @@ static class GuideCases
         expect(GuideModel.Summarize(sent, 1, both).Kind == ConnectKind.SomeFailed, $"{name}: a non-zero exit is never success");
         return true;
       }
+      case "configured-unverified":
+      {
+        // ChatGPT desktop and Codex share one settings file: the core reports both configured, not yet verified
+        var f = new Fixture(tmp, name, true);
+        File.WriteAllText(Path.Combine(f.Dir, "connect.json"), "{\"apps\":[{\"id\":\"chatgpt-desktop\",\"name\":\"ChatGPT\",\"status\":\"configured\",\"verified\":false,\"files\":[],\"backups\":[],\"seat\":\"chatgpt-desktop@pc\",\"restart\":null},{\"id\":\"codex\",\"name\":\"Codex CLI\",\"status\":\"configured\",\"verified\":false,\"files\":[],\"backups\":[],\"seat\":\"codex@pc\",\"restart\":null}],\"operator\":null}\n");
+        string[] sent = { "chatgpt-desktop", "codex" };
+        var (code, output) = f.Run(new[] { "connect", "chatgpt-desktop", "codex", "--json" });
+        var (apps, _) = GuideModel.ParseConnect(output);
+        expect(apps.Count == 2 && apps.All((a) => a.Ok && a.Unverified), $"{name}: configured counts as connected, not verified");
+        expect(apps.All((a) => a.Shown == "configured · not yet seen to load it"), $"{name}: it is shown as configured ({string.Join(" | ", apps.Select((a) => a.Shown))})");
+        var sum = GuideModel.Summarize(sent, code, apps);
+        expect(sum.Kind == ConnectKind.AllConnected && sum.NotConnected.Count == 0, $"{name}: never a failure, and nothing to retry ({sum.Kind})");
+        return true;
+      }
+      case "already-connected":
+      {
+        // discover --json has no connected field; onboarding --json gives the state
+        var f = new Fixture(tmp, name, true);
+        File.WriteAllText(Path.Combine(f.Dir, "onboarding.json"), "[{\"status\":\"ready\",\"step\":\"Claude Code\",\"detail\":\"MCP + session hooks + instructions\",\"app\":\"claude-code\"},{\"status\":\"needs-manual\",\"step\":\"Claude Code: one step\",\"detail\":\"Restart Claude Code\",\"app\":\"claude-code\",\"note\":true},{\"status\":\"skipped\",\"step\":\"Cursor\",\"detail\":\"you disconnected it\",\"app\":\"cursor\"},{\"status\":\"ready\",\"step\":\"Contracts\",\"detail\":\"off\"}]\n");
+        var apps = GuideModel.MarkConnected(GuideModel.ParseApps(f.Run(new[] { "discover", "--json" }).Output), f.Run(new[] { "onboarding", "--json" }).Output);
+        var rows = GuideModel.Rows(apps);
+        var cc = rows.First((r) => r.App.Id == "claude-code");
+        expect(cc.App.Connected && cc.Ticked && !cc.Enabled && cc.State == "connected", $"{name}: an app already connected is shown connected, not as new ({cc.State})");
+        var cu = rows.First((r) => r.App.Id == "cursor");
+        expect(!cu.Ticked && cu.Enabled, $"{name}: an app the person disconnected is unticked");
+        string[]? args = GuideModel.ConnectArgs(rows);
+        expect(args != null && args.SequenceEqual(new[] { "connect", "codex", "--json" }), $"{name}: connect leaves out the connected and the disconnected app ({(args == null ? "none" : string.Join(' ', args))})");
+        var (again, _) = GuideModel.ParseConnect("{\"apps\":[{\"id\":\"claude-code\",\"status\":\"already\",\"seat\":\"claude-code@pc\"}]}");
+        expect(again.Count == 1 && again[0].Ok && again[0].Shown == "already connected", $"{name}: connect's already is connected");
+        return true;
+      }
       case "order":
       {
         var flow = new GuideFlow();
@@ -229,6 +261,21 @@ static class GuideCases
         var calls = f.Calls().Skip(before).ToList();
         expect(calls.SequenceEqual(new[] { "doctor --fix --safe-only", "connect cursor --json" }), $"{name}: one safe fix, then one connect of the failed app ({string.Join(" ; ", calls)})");
         expect(ran.Count == 2 && retry.Count >= 1, $"{name}: the retry's outcome is read");
+        return true;
+      }
+      case "fix-manual-skipped":
+      {
+        // a fix the core cannot do: {desc, destructive:false, manual:true}
+        var f = new Fixture(tmp, name, true);
+        File.WriteAllText(Path.Combine(f.Dir, "doctor.json"), "[{\"id\":\"service\",\"title\":\"Memev starts at login\",\"status\":\"warn\",\"detail\":\"no login item\",\"fix\":{\"desc\":\"Run memev service install in a terminal\",\"destructive\":false,\"manual\":true}}]\n");
+        var items = GuideModel.ParseDoctor(f.Run(new[] { "doctor", "--json" }).Output);
+        expect(items.Count == 1 && items[0].Manual && !items[0].Safe, $"{name}: a by-hand fix is not a safe fix");
+        expect(!GuideModel.OfferSafeFix(items), $"{name}: with only a by-hand fix, Fix the safe ones is not offered");
+        expect(GuideModel.ManualSteps(items).SequenceEqual(new[] { "Run memev service install in a terminal" }), $"{name}: its text is a step for the person");
+        expect(GuideModel.FixLines(items).Single() == "Memev starts at login: by hand: Run memev service install in a terminal", $"{name}: the line says by hand ({GuideModel.FixLines(items).Single()})");
+        // beside a safe fix, Fix the safe ones is offered and the by-hand one is still only shown
+        var mixed = items.Concat(GuideModel.ParseDoctor(Doctor)).ToList();
+        expect(GuideModel.OfferSafeFix(mixed) && mixed.Count((i) => i.Safe) == 1 && GuideModel.ManualSteps(mixed).Count == 1, $"{name}: one safe fix to run, one step to show");
         return true;
       }
       default:

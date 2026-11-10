@@ -44,7 +44,12 @@ public sealed class ConnectOutcome
   public string Status = "";
   public string Seat = "";
   public string Detail = "";
-  public bool Ok => Status is "connected" or "added" or "ready" or "ok" or "already";
+  public bool Verified = true;
+  /// configured: the app shares its settings file with another (ChatGPT desktop and Codex), so the core wrote them and no
+  /// session has shown it loads them yet. Connected, not yet verified; never a failure.
+  public bool Unverified => Status == "configured" || !Verified;
+  public bool Ok => Status is "connected" or "added" or "ready" or "ok" or "already" or "configured";
+  public string Shown => !Ok ? "not connected" : Unverified ? "configured · not yet seen to load it" : Status == "already" ? "already connected" : "connected";
 }
 
 public enum ConnectKind { AllConnected, SomeFailed, Unreported }
@@ -73,7 +78,8 @@ public sealed class FixItem
   public string Status = "";
   public string Detail = "";
   public string FixText = "";
-  public bool Safe;           // the core can fix it, and its fix is marked destructive false
+  public bool Safe;           // the core can fix it, and its fix is marked destructive false and is not by hand
+  public bool Manual;         // a step for the person: Fix the safe ones skips it and shows its text
   public List<string> Related = new();
 }
 
@@ -207,6 +213,25 @@ public static class GuideModel
     return apps;
   }
 
+  /// discover --json says what is installed, not what is connected. The connection state the core does give is in
+  /// onboarding --json: an app row (not a note) with status ready or added is connected, and skipped is one the person
+  /// disconnected. Apps it does not name keep the state discover gave.
+  public static List<FoundApp> MarkConnected(IEnumerable<FoundApp> apps, string onboardingText)
+  {
+    var state = new Dictionary<string, string>();
+    foreach (JsonObject it in Items(Parse(onboardingText), "items"))
+    {
+      string id = Str(it["app"]);
+      if (!IdOk(id) || True(it["note"]) || state.ContainsKey(id)) continue;
+      state[id] = Str(it["status"]);
+    }
+    return apps.Select((a) => !state.TryGetValue(a.Id, out string? st) ? a : new FoundApp
+    {
+      Id = a.Id, Name = a.Name, Found = a.Found, Automation = a.Automation, Step = a.Step, Evidence = a.Evidence,
+      Connected = a.Connected || st is "ready" or "added", Declined = a.Declined || st == "skipped",
+    }).ToList();
+  }
+
   /// Every app found, in the core's order: auto apps ticked (connected ones ticked and fixed), one-step apps with their step
   /// and no tick, the rest found and not connectable, with a tick that is off and cannot be changed.
   public static List<ConnectRow> Rows(IEnumerable<FoundApp> apps)
@@ -246,7 +271,7 @@ public static class GuideModel
       if (id.Length == 0) id = Str(it["app"]);
       if (!IdOk(id) || list.Any((x) => x.Id == id)) continue;
       string seat = it["seat"] is JsonObject so ? Str(so["seat"]) : Str(it["seat"]);
-      list.Add(new ConnectOutcome { Id = id, Status = Str(it["status"]), Seat = seat, Detail = Str(it["detail"]) is { Length: > 0 } d ? d : Str(it["error"]) });
+      list.Add(new ConnectOutcome { Id = id, Status = Str(it["status"]), Seat = seat, Detail = Str(it["detail"]) is { Length: > 0 } d ? d : Str(it["reason"]) is { Length: > 0 } rr ? rr : Str(it["error"]), Verified = Str(it["verified"]) != "false" });
     }
     return (list, op);
   }
@@ -287,16 +312,20 @@ public static class GuideModel
       string fixText = c["fix"] is JsonObject f ? Str(f["desc"]) : "";
       if (fixText.Length == 0) fixText = Str(c["manual"]);
       if (fixText.Length == 0 && c["fix"] is JsonObject f2) fixText = Str(f2["manual"]);
-      bool safe = c["fix"] is JsonObject f3 && f3["destructive"] is JsonValue dv && dv.TryGetValue(out bool destructive) && !destructive;
+      bool manual = c["fix"] is JsonObject fm ? True(fm["manual"]) || (fm["desc"] == null && fm["manual"] != null) : Str(c["manual"]).Length > 0;
+      bool safe = !manual && c["fix"] is JsonObject f3 && f3["destructive"] is JsonValue dv && dv.TryGetValue(out bool destructive) && !destructive;
       var related = (c["related"] as JsonArray)?.Select(Str).Where(IdOk).ToList() ?? new List<string>();
-      list.Add(new FixItem { Id = Str(c["id"]), Title = Str(c["title"]), Status = status, Detail = Str(c["detail"]), FixText = fixText.Length > 0 ? fixText : Str(c["detail"]), Safe = safe, Related = related });
+      list.Add(new FixItem { Id = Str(c["id"]), Title = Str(c["title"]), Status = status, Detail = Str(c["detail"]), FixText = fixText.Length > 0 ? fixText : Str(c["detail"]), Safe = safe, Manual = manual, Related = related });
     }
     return list;
   }
 
   /// The lines the Result sheet and the guide's detail line show: each check that is not ok, with how to fix it.
   public static List<string> FixLines(IEnumerable<FixItem> items) =>
-    items.Select((i) => $"{(i.Title.Length > 0 ? i.Title : i.Id)}: {i.FixText}{(i.Safe ? "" : " (by hand)")}").ToList();
+    items.Select((i) => i.Manual ? $"{(i.Title.Length > 0 ? i.Title : i.Id)}: by hand: {i.FixText}" : $"{(i.Title.Length > 0 ? i.Title : i.Id)}: {i.FixText}{(i.Safe ? "" : " (by hand)")}").ToList();
+
+  /// The steps only the person can do, from checks whose fix is by hand: shown as steps, never run.
+  public static List<string> ManualSteps(IEnumerable<FixItem> items) => items.Where((i) => i.Manual && i.FixText.Length > 0).Select((i) => i.FixText).Distinct().ToList();
 
   /// Whether Fix the safe ones is offered: at least one check the core can fix without asking.
   public static bool OfferSafeFix(IEnumerable<FixItem> items) => items.Any((i) => i.Safe);

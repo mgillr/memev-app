@@ -270,7 +270,14 @@ static class Pages
       var (code, output) = CoreCall.Run(args, 60000);
       if (code < 0 || code == 126 || code == 127) continue;
       var apps = GuideModel.ParseApps(output);
-      if (apps.Count > 0 || (code == 0 && GuideModel.Parse(output) != null)) return (GuideModel.Rows(apps), true);
+      if (apps.Count == 0 && !(code == 0 && GuideModel.Parse(output) != null)) continue;
+      // discover says what is installed, not what is connected: onboarding --json gives the connection state
+      if (args[0] == "discover")
+      {
+        var (oc, ob) = CoreCall.Run(new[] { "onboarding", "--json" }, 60000);
+        if (oc >= 0 && oc != 126 && oc != 127) apps = GuideModel.MarkConnected(apps, ob);
+      }
+      return (GuideModel.Rows(apps), true);
     }
     return (new List<ConnectRow>(), false);
   }

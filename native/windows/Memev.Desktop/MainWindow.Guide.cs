@@ -250,8 +250,8 @@ sealed partial class MainWindow
     var sum = GuideModel.Summarize(sent, code, apps);
     var failed = sum.NotConnected;
     var rows = apps.Select((a) => new DetailRow(guideConnect.FirstOrDefault((r) => r.App.Id == a.Id)?.App.Name ?? a.Id,
-      a.Ok ? (a.Seat.Length > 0 ? $"connected · seat {a.Seat}" : "connected") : $"not connected{(a.Detail.Length > 0 ? " · " + a.Detail : "")}",
-      Glyph: a.Ok ? GlyphKind.Ok : GlyphKind.Warn)).ToList();
+      a.Ok ? (a.Seat.Length > 0 ? $"{a.Shown} · seat {a.Seat}" : a.Shown) : $"not connected{(a.Detail.Length > 0 ? " · " + a.Detail : "")}",
+      Glyph: a.Ok && !a.Unverified ? GlyphKind.Ok : a.Ok ? GlyphKind.Off : GlyphKind.Warn)).ToList();
     rows.AddRange(sum.Missing.Select((id) => new DetailRow(guideConnect.FirstOrDefault((r) => r.App.Id == id)?.App.Name ?? id, "Memev did not report the result", Glyph: GlyphKind.Warn)));
     rows.AddRange(GuideModel.FixLines(fixes).Select((l) => new DetailRow("To fix", l, Glyph: GlyphKind.Warn)));
     bool allOk = sum.Kind == ConnectKind.AllConnected;
