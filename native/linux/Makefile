@@ -9,8 +9,8 @@ GTK_LIBS := $(shell pkg-config --libs gtk4 libadwaita-1)
 
 all: memev-desktop
 
-memev-desktop: src/main.c src/ui.c src/ui.h src/read.c src/read.h src/guide.c src/guide.h
-	$(CC) $(CFLAGS) $(GTK_CFLAGS) -o $@ src/main.c src/ui.c src/read.c src/guide.c $(GTK_LIBS)
+memev-desktop: src/main.c src/ui.c src/ui.h src/read.c src/read.h src/guide.c src/guide.h src/ops.c src/ops.h
+	$(CC) $(CFLAGS) $(GTK_CFLAGS) -o $@ src/main.c src/ui.c src/read.c src/guide.c src/ops.c $(GTK_LIBS)
 
 test-read: src/read.c src/read.h test/test-read.c
 	$(CC) $(CFLAGS) -o $@ src/read.c test/test-read.c
@@ -21,13 +21,17 @@ test-guide: src/guide.c src/guide.h src/read.c src/read.h test/test-guide.c
 proof: src/proof.c src/guide.c src/guide.h src/read.c src/read.h
 	$(CC) $(CFLAGS) -o $@ src/proof.c src/guide.c src/read.c
 
-test: test-read test-guide memev-desktop
+test-ops: src/ops.c src/ops.h src/read.c src/read.h test/test-ops.c
+	$(CC) $(CFLAGS) -o $@ src/ops.c src/read.c test/test-ops.c
+
+test: test-read test-guide test-ops memev-desktop
 	./test-read
 	./test-guide
+	./test-ops
 	./test/self-check.sh
 
 real-core: proof
 	./test/real-core.sh
 
 clean:
-	rm -f memev-desktop test-read test-guide proof
+	rm -f memev-desktop test-read test-guide test-ops proof

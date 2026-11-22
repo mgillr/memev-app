@@ -73,4 +73,33 @@ printf '%s\n' "$guide" | grep -F 'guide=Is this your first computer?' >/dev/null
 printf '%s\n' "$guide" | grep -F 'primary_label=Continue' >/dev/null
 printf '%s\n' "$guide" | grep -F 'primary=1' >/dev/null
 
+ops=$(NO_AT_BRIDGE=1 MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=off MEMEV_SELF_CHECK=1 \
+  MEMEV_SELF_CHECK_PAGE=operations xvfb-run -a "$bin")
+printf '%s\n' "$ops"
+printf '%s\n' "$ops" | grep -Fx 'page=Operations' >/dev/null
+printf '%s\n' "$ops" | grep -Fx 'prompt=Tell your lead agent what you want done, or ask a question' >/dev/null
+printf '%s\n' "$ops" | grep -Fx 'lead_sentence=claude-code leads. Tell it what you want done.' >/dev/null
+printf '%s\n' "$ops" | grep -Fx 'messages=1' >/dev/null
+printf '%s\n' "$ops" | grep -Fx 'seats=2' >/dev/null
+printf '%s\n' "$ops" | grep -Fx 'secret=absent' >/dev/null
+if printf '%s\n' "$ops" | grep -F 'secret-host' >/dev/null; then
+  echo "a computer name reached Operations" >&2
+  exit 1
+fi
+
+for page in projects bots memory checked settings; do
+  got=$(NO_AT_BRIDGE=1 MEMEV_BIN="$fix" MEMEV_HEALTH_URL=off MEMEV_THEME=dark MEMEV_GUIDE=off MEMEV_SELF_CHECK=1 \
+    MEMEV_SELF_CHECK_PAGE="$page" xvfb-run -a "$bin")
+  printf '%s\n' "$got"
+  printf '%s\n' "$got" | grep -Fx "page=$page" >/dev/null
+  printf '%s\n' "$got" | grep -Fx 'secret=absent' >/dev/null
+  if printf '%s\n' "$got" | grep -F -e 'vault-marker' -e 'should-not-appear' -e 'example.invalid' -e 'secret-host' >/dev/null; then
+    echo "a hidden field reached $page" >&2
+    exit 1
+  fi
+done
+printf '%s\n' "$got" | grep -F 'Plan: free. Computers: 1 of 1. Connectors: 0.' >/dev/null
+printf '%s\n' "$got" | grep -F 'Backup: on' >/dev/null
+printf '%s\n' "$got" | grep -F 'Licence: Free' >/dev/null
+
 echo "self-check passed"

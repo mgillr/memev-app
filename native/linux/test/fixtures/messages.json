@@ -1,0 +1,3 @@
+[
+  {"from": "you", "to": "claude-code", "type": "task", "body": "Open the notes project.", "seq": 1}
+]

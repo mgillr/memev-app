@@ -2,6 +2,7 @@
 #include "ui.h"
 #include "read.h"
 #include "guide.h"
+#include "ops.h"
 
 #include <adwaita.h>
 #include <stdio.h>
@@ -12,18 +13,18 @@
 typedef struct {
   const char *id;
   const char *label;
-  int kind; /* 0 overview, 1 health, 2 later */
+  int kind; /* 0 overview, 1 health, 2 later, 3 operations, 4 a live page */
   const char *later;
 } NavItem;
 
 static const NavItem NAV[] = {
   {"overview", "Overview", 0, NULL},
-  {"operations", "Operations", 2, "Not in this slice. Live agent panes are not drawn here."},
-  {"projects", "Projects", 2, "Not in this slice. No project list is loaded yet."},
-  {"bots", "Bots and agents", 2, "Not in this slice. The roster is not loaded yet."},
-  {"memory", "Memory", 2, "Not in this slice. Search stays on the memev command until a later slice."},
-  {"checked", "Checked work", 2, "Not in this slice. Receipts are not listed yet."},
-  {"settings", "Settings", 2, "Not in this slice. The theme follows this computer."},
+  {"operations", "Operations", 3, NULL},
+  {"projects", "Projects", 4, NULL},
+  {"bots", "Bots and agents", 4, NULL},
+  {"memory", "Memory", 4, NULL},
+  {"checked", "Checked work", 4, NULL},
+  {"settings", "Settings", 4, NULL},
 };
 static const int NAV_COUNT = 7;
 
@@ -40,6 +41,17 @@ typedef struct {
   GtkWidget *health_sentence;
   GtkWidget *checks;
   GtkWidget *later_body;
+  GtkWidget *work_list;
+  GtkWidget *memory_row;
+  GtkWidget *memory_entry;
+  GtkWidget *ops_sentence;
+  GtkWidget *ops_note;
+  GtkWidget *ops_messages;
+  GtkWidget *ops_seats;
+  GtkWidget *ops_entry;
+  GtkWidget *ops_send;
+  GtkWidget *ops_detail;
+  OpsView ops;
   GtkWidget *stack;
   GtkWidget *primary;
   GtkWidget *back;
@@ -201,6 +213,202 @@ static void fill(App *a) {
   }
 }
 
+static void set_amber(App *a) {
+  const char *name;
+  const char *text;
+  int ready;
+  if (!a->ops_send || a->in_guide) return;
+  name = gtk_stack_get_visible_child_name(GTK_STACK(a->stack));
+  text = gtk_editable_get_text(GTK_EDITABLE(a->ops_entry));
+  ready = name && strcmp(name, "operations") == 0 && text && text[0] && strspn(text, " \t") != strlen(text);
+  if (ready) {
+    gtk_widget_remove_css_class(a->primary, "primary");
+    gtk_widget_add_css_class(a->ops_send, "primary");
+  } else {
+    gtk_widget_remove_css_class(a->ops_send, "primary");
+    gtk_widget_add_css_class(a->primary, "primary");
+  }
+}
+
+static GtkWidget *plain_label(const char *text) {
+  GtkWidget *label = gtk_label_new(text);
+  gtk_label_set_xalign(GTK_LABEL(label), 0);
+  gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+  gtk_label_set_max_width_chars(GTK_LABEL(label), 72);
+  return label;
+}
+
+static void fill_lines(GtkWidget *list, const char *text) {
+  const char *p = text ? text : "";
+  clear_list(list);
+  if (!p[0]) {
+    gtk_list_box_append(GTK_LIST_BOX(list), plain_label("That page did not answer."));
+    return;
+  }
+  while (*p) {
+    const char *nl = strchr(p, '\n');
+    char line[512];
+    size_t n = nl ? (size_t)(nl - p) : strlen(p);
+    GtkWidget *label;
+    if (n >= sizeof line) n = sizeof line - 1;
+    memcpy(line, p, n);
+    line[n] = 0;
+    if (line[0]) {
+      label = plain_label(line[0] == '#' && line[1] == ' ' ? line + 2 : line);
+      if (line[0] == '#') gtk_widget_add_css_class(label, "section");
+      gtk_list_box_append(GTK_LIST_BOX(list), label);
+    }
+    if (!nl) break;
+    p = nl + 1;
+  }
+}
+
+static void fill_page(App *a, const char *which) {
+  char bin[4096];
+  char text[16384];
+  const char *query = "";
+  int memory = which && strcmp(which, "memory") == 0;
+  if (a->memory_row) gtk_widget_set_visible(a->memory_row, memory);
+  if (memory && a->memory_entry) query = gtk_editable_get_text(GTK_EDITABLE(a->memory_entry));
+  if (memev_resolve_bin(bin, sizeof bin) != 0) {
+    fill_lines(a->work_list, "Memev is not on this computer.");
+    return;
+  }
+  pages_text(bin, which, query, text, sizeof text);
+  fill_lines(a->work_list, text);
+}
+
+static void clear_box(GtkWidget *box) {
+  GtkWidget *child;
+  while ((child = gtk_widget_get_first_child(box)) != NULL)
+    gtk_box_remove(GTK_BOX(box), child);
+}
+
+static void on_make_lead(GtkButton *button, gpointer ud);
+static void on_send(GtkWidget *widget, gpointer ud);
+
+static void fill_ops(App *a) {
+  char bin[4096];
+  int i;
+  if (memev_resolve_bin(bin, sizeof bin) != 0) {
+    memset(&a->ops, 0, sizeof a->ops);
+    snprintf(a->ops.sentence, sizeof a->ops.sentence, "%s", "Memev is not on this computer.");
+  } else {
+    ops_load(bin, &a->ops);
+  }
+  gtk_label_set_text(GTK_LABEL(a->ops_sentence), a->ops.sentence);
+  gtk_label_set_text(GTK_LABEL(a->ops_note), a->ops.note);
+  gtk_widget_set_visible(a->ops_note, a->ops.note[0] != 0);
+  clear_list(a->ops_messages);
+  if (a->ops.nmsgs == 0)
+    gtk_list_box_append(GTK_LIST_BOX(a->ops_messages), plain_label(OPS_BLANK));
+  else {
+    for (i = 0; i < a->ops.nmsgs; i++) {
+      char line[512];
+      snprintf(line, sizeof line, "%s -> %s: %s", a->ops.msgs[i].from, a->ops.msgs[i].to, a->ops.msgs[i].body);
+      gtk_list_box_append(GTK_LIST_BOX(a->ops_messages), plain_label(line));
+    }
+  }
+  clear_box(a->ops_seats);
+  if (a->ops.nseats == 0)
+    gtk_box_append(GTK_BOX(a->ops_seats), plain_label("No seats yet. An app gets a seat when it connects."));
+  for (i = 0; i < a->ops.nseats; i++) {
+    char label[96];
+    GtkWidget *button;
+    snprintf(label, sizeof label, "Make %s the lead", a->ops.seats[i].name);
+    button = gtk_button_new_with_label(label);
+    gtk_widget_add_css_class(button, "nav");
+    g_object_set_data_full(G_OBJECT(button), "seat", g_strdup(a->ops.seats[i].name), g_free);
+    g_signal_connect(button, "clicked", G_CALLBACK(on_make_lead), a);
+    gtk_box_append(GTK_BOX(a->ops_seats), button);
+  }
+}
+
+static int run_words(App *a, char words[][OPS_ARG], int argc, char *why, size_t whyn) {
+  char bin[4096];
+  char *argv[8];
+  char out[2048];
+  int code = 0;
+  int i;
+  (void)a;
+  if (memev_resolve_bin(bin, sizeof bin) != 0) {
+    snprintf(why, whyn, "%s", "Memev is not on this computer.");
+    return -1;
+  }
+  argv[0] = bin;
+  for (i = 0; i < argc && i < OPS_ARGS; i++) argv[i + 1] = words[i];
+  argv[argc + 1] = NULL;
+  if (memev_capture(bin, argv, out, sizeof out, 15000, &code) != 0 || code != 0) {
+    snprintf(why, whyn, "%s", "That did not go through.");
+    return -1;
+  }
+  if (whyn) why[0] = 0;
+  return 0;
+}
+
+static void on_make_lead(GtkButton *button, gpointer ud) {
+  App *a = ud;
+  const char *seat = g_object_get_data(G_OBJECT(button), "seat");
+  char words[OPS_ARGS][OPS_ARG];
+  char why[160];
+  int argc = 0;
+  if (ops_lead_argv(&a->ops, seat, words, &argc, why, sizeof why) != 0 || run_words(a, words, argc, why, sizeof why) != 0) {
+    gtk_label_set_text(GTK_LABEL(a->ops_detail), why[0] ? why : "That seat was not set.");
+    return;
+  }
+  gtk_label_set_text(GTK_LABEL(a->ops_detail), "");
+  fill_ops(a);
+  set_amber(a);
+}
+
+static void on_send(GtkWidget *widget, gpointer ud) {
+  App *a = ud;
+  const char *text;
+  char words[OPS_ARGS][OPS_ARG];
+  char why[160];
+  int argc = 0;
+  (void)widget;
+  text = gtk_editable_get_text(GTK_EDITABLE(a->ops_entry));
+  if (ops_send_argv(a->ops.lead, text, words, &argc, why, sizeof why) != 0 || run_words(a, words, argc, why, sizeof why) != 0) {
+    gtk_label_set_text(GTK_LABEL(a->ops_detail), why[0] ? why : "That message was not sent.");
+    return;
+  }
+  gtk_editable_set_text(GTK_EDITABLE(a->ops_entry), "");
+  gtk_label_set_text(GTK_LABEL(a->ops_detail), "Sent.");
+  fill_ops(a);
+  set_amber(a);
+}
+
+static void on_ops_changed(GtkEditable *editable, gpointer ud) {
+  (void)editable;
+  set_amber(ud);
+}
+
+static void on_search(GtkWidget *widget, gpointer ud) {
+  (void)widget;
+  fill_page(ud, "memory");
+}
+
+static int page_index(const char *id) {
+  if (!id) return -1;
+  for (int i = 0; i < NAV_COUNT; i++) if (strcmp(NAV[i].id, id) == 0) return i;
+  return -1;
+}
+
+static int vault_answers(void) {
+  char bin[4096];
+  char out[4096];
+  int code = 0;
+  char *argv[4];
+  if (memev_resolve_bin(bin, sizeof bin) != 0) return 0;
+  argv[0] = bin;
+  argv[1] = "status";
+  argv[2] = "--json";
+  argv[3] = NULL;
+  if (memev_capture(bin, argv, out, sizeof out, 15000, &code) != 0 || code != 0) return 0;
+  return strchr(out, '{') != NULL;
+}
+
 static void show_page(App *a, int index) {
   if (index < 0 || index >= NAV_COUNT) return;
   a->selected = index;
@@ -215,11 +423,22 @@ static void show_page(App *a, int index) {
   } else if (item->kind == 1) {
     gtk_label_set_text(GTK_LABEL(a->page_title), "Health");
     gtk_stack_set_visible_child_name(GTK_STACK(a->stack), "health");
+  } else if (item->kind == 3) {
+    gtk_label_set_text(GTK_LABEL(a->page_title), item->label);
+    gtk_stack_set_visible_child_name(GTK_STACK(a->stack), "operations");
+    fill_ops(a);
+  } else if (item->kind == 4) {
+    gtk_label_set_text(GTK_LABEL(a->page_title), item->label);
+    gtk_label_set_text(GTK_LABEL(a->later_body), "");
+    gtk_stack_set_visible_child_name(GTK_STACK(a->stack), "later");
+    fill_page(a, item->id);
   } else {
     gtk_label_set_text(GTK_LABEL(a->page_title), item->label);
-    gtk_label_set_text(GTK_LABEL(a->later_body), item->later);
+    gtk_label_set_text(GTK_LABEL(a->later_body), item->later ? item->later : "");
+    if (a->memory_row) gtk_widget_set_visible(a->memory_row, FALSE);
     gtk_stack_set_visible_child_name(GTK_STACK(a->stack), "later");
   }
+  set_amber(a);
 }
 
 static void align_button_label(GtkWidget *button) {
@@ -256,14 +475,24 @@ static void reload_glance(App *a) {
   fill(a);
 }
 
+static void reload_visible(App *a) {
+  const char *name;
+  reload_glance(a);
+  if (!a->stack) return;
+  name = gtk_stack_get_visible_child_name(GTK_STACK(a->stack));
+  if (name && strcmp(name, "operations") == 0) fill_ops(a);
+  else if (a->selected >= 0 && NAV[a->selected].kind == 4) fill_page(a, NAV[a->selected].id);
+}
+
 static void on_refresh(GSimpleAction *action, GVariant *param, gpointer ud) {
   (void)action;
   (void)param;
-  reload_glance(ud);
+  reload_visible(ud);
 }
 
 static gboolean poll_glance(gpointer ud) {
-  reload_glance(ud);
+  App *a = ud;
+  if (!a->in_guide) reload_visible(a);
   return G_SOURCE_CONTINUE;
 }
 
@@ -305,6 +534,30 @@ static int list_len(GtkWidget *list) {
 
 static gboolean report_and_quit(gpointer ud) {
   App *a = ud;
+  if (!a->in_guide) {
+    const char *vis = gtk_stack_get_visible_child_name(GTK_STACK(a->stack));
+    int secret = text_has(a->window, "should-not-appear") || text_has(a->window, "vault-marker") || text_has(a->window, "secret-host");
+    if (vis && strcmp(vis, "operations") == 0) {
+      const char *sentence = gtk_label_get_text(GTK_LABEL(a->ops_sentence));
+      const char *prompt = gtk_entry_get_placeholder_text(GTK_ENTRY(a->ops_entry));
+      printf("page=Operations\n");
+      printf("prompt=%s\n", prompt ? prompt : "");
+      printf("lead_sentence=%s\n", sentence ? sentence : "");
+      printf("messages=%d\n", a->ops.nmsgs);
+      printf("seats=%d\n", a->ops.nseats);
+      printf("secret=%s\n", secret ? "present" : "absent");
+      exit(sentence && sentence[0] && prompt && strcmp(prompt, OPS_PROMPT) == 0 && !secret ? 0 : 1);
+    }
+    if (vis && strcmp(vis, "later") == 0 && a->selected >= 0 && NAV[a->selected].kind == 4) {
+      printf("page=%s\n", NAV[a->selected].id);
+      for (GtkWidget *c = gtk_widget_get_first_child(a->work_list); c; c = gtk_widget_get_next_sibling(c)) {
+        GtkWidget *label = GTK_IS_LABEL(c) ? c : gtk_widget_get_first_child(c);
+        if (GTK_IS_LABEL(label)) printf("line=%s\n", gtk_label_get_text(GTK_LABEL(label)));
+      }
+      printf("secret=%s\n", secret ? "present" : "absent");
+      exit(secret ? 1 : 0);
+    }
+  }
   if (a->in_guide) {
     const char *title = gtk_label_get_text(GTK_LABEL(a->page_title));
     const char *button = gtk_button_get_label(GTK_BUTTON(a->primary));
@@ -424,6 +677,8 @@ static void guide_load_apps(App *a) {
 static void guide_show(App *a, int step) {
   a->in_guide = 1;
   a->guide_step = step;
+  if (a->ops_send) gtk_widget_remove_css_class(a->ops_send, "primary");
+  gtk_widget_add_css_class(a->primary, "primary");
   gtk_widget_set_visible(a->back, step > 0);
   gtk_widget_set_visible(a->guide_entry, FALSE);
   gtk_widget_set_visible(a->guide_choices, FALSE);
@@ -469,7 +724,7 @@ static void guide_finish(App *a) {
   gtk_button_set_label(GTK_BUTTON(a->primary), "Refresh");
   write_guide_marker();
   reload_glance(a);
-  show_page(a, 0);
+  show_page(a, 1);
 }
 
 static void guide_collect(App *a) {
@@ -568,7 +823,7 @@ static void on_primary(GtkButton *button, gpointer ud) {
   (void)button;
   App *a = ud;
   if (a->in_guide) guide_next(a);
-  else reload_glance(a);
+  else reload_visible(a);
 }
 
 static void on_help(GtkButton *button, gpointer ud) {
@@ -578,7 +833,10 @@ static void on_help(GtkButton *button, gpointer ud) {
   a->selected = -1;
   gtk_label_set_text(GTK_LABEL(a->page_title), "Help and support");
   gtk_label_set_text(GTK_LABEL(a->later_body), "Help and support is not in this slice. This app sends nothing.");
+  if (a->memory_row) gtk_widget_set_visible(a->memory_row, FALSE);
+  if (a->work_list) clear_list(a->work_list);
   gtk_stack_set_visible_child_name(GTK_STACK(a->stack), "later");
+  set_amber(a);
 }
 
 static void on_activate(GtkApplication *application, gpointer ud) {
@@ -708,7 +966,53 @@ static void on_activate(GtkApplication *application, gpointer ud) {
   gtk_label_set_xalign(GTK_LABEL(a->later_body), 0);
   gtk_label_set_wrap(GTK_LABEL(a->later_body), TRUE);
   gtk_label_set_max_width_chars(GTK_LABEL(a->later_body), 64);
+  a->memory_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  a->memory_entry = gtk_entry_new();
+  gtk_entry_set_placeholder_text(GTK_ENTRY(a->memory_entry), "Search your notes");
+  gtk_widget_set_hexpand(a->memory_entry, TRUE);
+  GtkWidget *search = gtk_button_new_with_label("Search");
+  gtk_widget_add_css_class(search, "nav");
+  g_signal_connect(search, "clicked", G_CALLBACK(on_search), a);
+  g_signal_connect(a->memory_entry, "activate", G_CALLBACK(on_search), a);
+  gtk_box_append(GTK_BOX(a->memory_row), a->memory_entry);
+  gtk_box_append(GTK_BOX(a->memory_row), search);
+  gtk_widget_set_visible(a->memory_row, FALSE);
+  a->work_list = gtk_list_box_new();
+  gtk_list_box_set_selection_mode(GTK_LIST_BOX(a->work_list), GTK_SELECTION_NONE);
   gtk_box_append(GTK_BOX(later), a->later_body);
+  gtk_box_append(GTK_BOX(later), a->memory_row);
+  gtk_box_append(GTK_BOX(later), a->work_list);
+
+  GtkWidget *operations = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+  a->ops_sentence = gtk_label_new("");
+  gtk_widget_add_css_class(a->ops_sentence, "sub");
+  gtk_label_set_xalign(GTK_LABEL(a->ops_sentence), 0);
+  gtk_label_set_wrap(GTK_LABEL(a->ops_sentence), TRUE);
+  gtk_label_set_max_width_chars(GTK_LABEL(a->ops_sentence), 64);
+  a->ops_note = gtk_label_new("");
+  gtk_widget_add_css_class(a->ops_note, "warn");
+  gtk_label_set_xalign(GTK_LABEL(a->ops_note), 0);
+  gtk_label_set_wrap(GTK_LABEL(a->ops_note), TRUE);
+  a->ops_messages = gtk_list_box_new();
+  gtk_list_box_set_selection_mode(GTK_LIST_BOX(a->ops_messages), GTK_SELECTION_NONE);
+  a->ops_seats = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+  a->ops_entry = gtk_entry_new();
+  gtk_entry_set_placeholder_text(GTK_ENTRY(a->ops_entry), OPS_PROMPT);
+  g_signal_connect(a->ops_entry, "changed", G_CALLBACK(on_ops_changed), a);
+  g_signal_connect(a->ops_entry, "activate", G_CALLBACK(on_send), a);
+  a->ops_send = gtk_button_new_with_label("Send");
+  gtk_widget_set_halign(a->ops_send, GTK_ALIGN_START);
+  g_signal_connect(a->ops_send, "clicked", G_CALLBACK(on_send), a);
+  a->ops_detail = gtk_label_new("");
+  gtk_label_set_xalign(GTK_LABEL(a->ops_detail), 0);
+  gtk_label_set_wrap(GTK_LABEL(a->ops_detail), TRUE);
+  gtk_box_append(GTK_BOX(operations), a->ops_sentence);
+  gtk_box_append(GTK_BOX(operations), a->ops_note);
+  gtk_box_append(GTK_BOX(operations), a->ops_messages);
+  gtk_box_append(GTK_BOX(operations), a->ops_seats);
+  gtk_box_append(GTK_BOX(operations), a->ops_entry);
+  gtk_box_append(GTK_BOX(operations), a->ops_send);
+  gtk_box_append(GTK_BOX(operations), a->ops_detail);
 
   GtkWidget *guide = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
   a->guide_text = gtk_label_new("");
@@ -748,6 +1052,7 @@ static void on_activate(GtkApplication *application, gpointer ud) {
   gtk_stack_add_named(GTK_STACK(a->stack), overview, "overview");
   gtk_stack_add_named(GTK_STACK(a->stack), health, "health");
   gtk_stack_add_named(GTK_STACK(a->stack), later, "later");
+  gtk_stack_add_named(GTK_STACK(a->stack), operations, "operations");
   gtk_box_append(GTK_BOX(page), a->stack);
 
   GtkWidget *scroll = gtk_scrolled_window_new();
@@ -768,10 +1073,20 @@ static void on_activate(GtkApplication *application, gpointer ud) {
 
   reload_glance(a);
   guide_plan_clear(&a->plan);
-  if (want_guide() && a->glance.have_binary) {
-    guide_show(a, 0);
-  } else {
-    show_page(a, 0);
+  {
+    const char *want = getenv("MEMEV_SELF_CHECK_PAGE");
+    const char *forced = getenv("MEMEV_GUIDE");
+    int index;
+    if (!want || !want[0]) want = getenv("MEMEV_OPEN");
+    if (forced && strcmp(forced, "1") == 0 && a->glance.have_binary) guide_show(a, 0);
+    else if (!want_guide()) {
+      index = want ? page_index(want) : -1;
+      show_page(a, index >= 0 ? index : 0);
+    } else if (a->glance.daemon_up || vault_answers()) {
+      write_guide_marker();
+      show_page(a, 1);
+    } else if (a->glance.have_binary) guide_show(a, 0);
+    else show_page(a, 0);
   }
   gtk_window_present(GTK_WINDOW(a->window));
 

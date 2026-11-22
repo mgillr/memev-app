@@ -71,6 +71,7 @@ final class GuideController: NSObject {
   func show(_ s: Int) {
     step = s
     owner.inGuide = true
+    owner.armGuideButton()
     owner.select(-1)
     owner.showGuide()
     back.isHidden = s == 0
@@ -215,6 +216,6 @@ final class GuideController: NSObject {
     owner.inGuide = false
     owner.setPrimary("Refresh")
     owner.reload()
-    owner.showPage(0)
+    owner.showPage(1)
   }
 }

@@ -223,6 +223,34 @@ static class Program
     return 0;
   }
 
+  static void OpsTests()
+  {
+    var view = new Ops.View();
+    const string roster = "{\"operator\":\"claude-code\",\"seats\":[{\"seat\":\"claude-code\",\"state\":\"live\",\"operator\":true,\"device_label\":\"secret-host\"},{\"seat\":\"cursor\",\"state\":\"stale\",\"operator\":false}]}";
+    const string none = "{\"operator\":null,\"seats\":[{\"seat\":null,\"device_label\":\"secret-host\"},{\"seat\":\"cursor\",\"state\":\"stale\"}]}";
+    const string msgs = "[{\"from\":\"you\",\"to\":\"claude-code\",\"body\":\"Open the notes project.\"},{\"from\":\"claude-code\",\"to\":\"you\",\"body\":\"saved in /tmp/vault-marker\"}]";
+    Expect(Ops.ReadRoster(roster, view), "roster parses");
+    Expect(view.Lead == "claude-code" && view.Seats.Count == 2 && view.Seats[0].Lead, "lead and seats");
+    Expect(!view.Seats[0].Name.Contains("secret-host"), "hostname stays off the seat");
+    Ops.Sentence(view);
+    Expect(view.Sentence == "claude-code leads. Tell it what you want done.", "lead sentence");
+    Expect(Ops.ReadMessages(msgs, view) && view.Messages.Count == 1 && view.Messages[0].Body == "Open the notes project.", "a path is dropped");
+    view = new Ops.View();
+    Expect(Ops.ReadRoster(none, view) && view.Lead.Length == 0 && view.Seats.Count == 1, "no lead, nameless seat skipped");
+    Ops.Sentence(view);
+    Expect(view.Sentence == "No lead is set. Pick one, then tell it what you want done.", "no-lead sentence");
+    Expect(Ops.SendArgs("", "hello", out _) == null, "send needs a lead");
+    Expect(Ops.SendArgs("claude-code", "go /tmp/x", out _) == null, "send refuses a path");
+    string[]? sent = Ops.SendArgs("claude-code", "Open the notes project.", out string why);
+    Expect(sent != null && why.Length == 0 && sent.Length == 5 && sent[0] == "bus" && sent[1] == "send" && sent[2] == "claude-code" && sent[3] == "task" && sent[4] == "Open the notes project.", "send argv");
+    Expect(Ops.ReadRoster(roster, view), "roster again");
+    Expect(Ops.LeadArgs(view, "not-a-seat", out _) == null, "lead must be on the roster");
+    string[]? lead = Ops.LeadArgs(view, "cursor", out _);
+    Expect(lead != null && lead.Length == 3 && lead[0] == "bus" && lead[1] == "operator" && lead[2] == "cursor", "operator argv");
+    string page = Ops.Page("settings", "", (_) => new Core.Result(true, 2, ""));
+    Expect(page.Contains("did not answer"), "a failed command is one sentence");
+  }
+
   static int Main(string[] args)
   {
     if (args.Length == 3 && args[0] == "proof") return Proof(args[1], args[2]);
@@ -238,6 +266,7 @@ static class Program
       TestHeldOpen(tmp);
       TestMissing(tmp);
       GuideTests.Run(Expect, tmp);
+      OpsTests();
     }
     finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
     if (failed > 0) { Console.Error.WriteLine($"{failed} reader test(s) failed"); return 1; }
