@@ -1,9 +1,49 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-case "${1:-}" in
+cmd=${1:-}
+shift || true
+case "$cmd" in
   status|doctor|card)
-    cat "$dir/$1.json"
+    cat "$dir/$cmd.json"
+    ;;
+  bus)
+    case "${1:-}" in
+      roster) cat "$dir/roster.json" ;;
+      since) cat "$dir/messages.json" ;;
+      send|operator) printf 'ok\n' ;;
+      *) echo "unknown bus command" >&2; exit 2 ;;
+    esac
+    ;;
+  recall)
+    printf '%s\n' '[{"heading":"Window","snippet":"Ship the window","project":"demo"}]'
+    ;;
+  review)
+    printf '%s\n' '{"inbox":[]}'
+    ;;
+  audit)
+    printf '%s\n' '{"memories":3,"likely_junk":0,"next":"Nothing to clean up."}'
+    ;;
+  contract)
+    printf '%s\n' '{"contracts":[{"title":"Ship the window","state":"open","version":1,"workdir":"/tmp/vault-marker"}]}'
+    ;;
+  devices)
+    printf '%s\n' '{"devices":[{"label":"this computer","kind":"host","status":"active","id":"should-not-appear"}]}'
+    ;;
+  clients)
+    printf '%s\n' 'claude-code: not connected'
+    ;;
+  plan)
+    printf '%s\n' '{"plan":"free","computers_used":1,"computers_allowed":1,"connectors_counted":0}'
+    ;;
+  license)
+    printf '%s\n' '{"tier_label":"Free","state":"none","reason":"the free tier needs none"}'
+    ;;
+  report)
+    printf '%s\n' '{"enabled":false,"asked":true,"address_set":false}'
+    ;;
+  backup)
+    printf '%s\n' 'Backing up to https://example.invalid/notes.git'
     ;;
   *)
     echo "unknown command" >&2

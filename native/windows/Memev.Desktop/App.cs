@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// The Windows window, first slice: the same window as native/linux and native/macos. It reads a Memev core on this computer
-// through Memev.Reader and shows the health sentence, the seven menu entries, Help and support, and the overview sentence.
-// It writes nothing and sends nothing beyond loopback. MEMEV_SELF_CHECK=1 prints what it shows and exits.
+// The Windows window: the same window as native/linux and native/macos. It reads a Memev core on this computer
+// through Memev.Reader. Operations can name a lead and send that lead a task on this computer's bus.
+// MEMEV_SELF_CHECK=1 prints what it shows and exits.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -74,12 +74,12 @@ sealed class MainWindow : Window
   static readonly NavItem[] Nav =
   {
     new("overview", "Overview", 0, null),
-    new("operations", "Operations", 2, "Not in this slice. Live agent panes are not drawn here."),
-    new("projects", "Projects", 2, "Not in this slice. No project list is loaded yet."),
-    new("bots", "Bots and agents", 2, "Not in this slice. The roster is not loaded yet."),
-    new("memory", "Memory", 2, "Not in this slice. Search stays on the memev command until a later slice."),
-    new("checked", "Checked work", 2, "Not in this slice. Receipts are not listed yet."),
-    new("settings", "Settings", 2, "Not in this slice. The theme follows this computer."),
+    new("operations", "Operations", 3, null),
+    new("projects", "Projects", 4, null),
+    new("bots", "Bots and agents", 4, null),
+    new("memory", "Memory", 4, null),
+    new("checked", "Checked work", 4, null),
+    new("settings", "Settings", 4, null),
   };
 
   public static readonly RoutedCommand RefreshCommand = new("Refresh", typeof(MainWindow));
@@ -98,7 +98,19 @@ sealed class MainWindow : Window
   readonly TextBlock healthSentence = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap };
   readonly StackPanel checks = new();
   readonly TextBlock laterBody = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap };
-  readonly StackPanel overviewPage, healthPage, laterPage, guidePage;
+  readonly StackPanel overviewPage, healthPage, laterPage, guidePage, opsPage;
+  readonly StackPanel workLines = new();
+  readonly StackPanel memoryRow = new() { Orientation = Orientation.Horizontal, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 8, 0, 8) };
+  readonly TextBox memoryEntry = new() { MinWidth = 320, Padding = new Thickness(6, 4, 6, 4) };
+  readonly TextBlock opsSentence = new() { FontSize = 16, TextWrapping = TextWrapping.Wrap };
+  readonly TextBlock opsNote = new() { TextWrapping = TextWrapping.Wrap };
+  readonly StackPanel opsMessages = new();
+  readonly StackPanel opsSeats = new();
+  readonly TextBox opsEntry = new() { MinWidth = 420, Padding = new Thickness(6, 4, 6, 4) };
+  readonly Button opsSend;
+  readonly TextBlock opsDetail = new() { TextWrapping = TextWrapping.Wrap };
+  Ops.View ops = new();
+  int selected;
   readonly TextBlock primaryLabel = new() { Text = "Refresh", Foreground = new SolidColorBrush(Theme.Ink), FontWeight = FontWeights.Medium };
   readonly Button back;
   Button helpButton = null!;
@@ -189,12 +201,29 @@ sealed class MainWindow : Window
     laterBody.Foreground = B(theme.Sub);
     laterPage = new StackPanel { Visibility = Visibility.Collapsed };
     laterPage.Children.Add(laterBody);
+    var search = new Button { Content = "Search", Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(12, 4, 12, 4) };
+    search.Click += (_, _) => LoadLive("memory");
+    memoryEntry.KeyDown += (_, e) => { if (e.Key == Key.Enter) LoadLive("memory"); };
+    memoryRow.Children.Add(memoryEntry);
+    memoryRow.Children.Add(search);
+    laterPage.Children.Add(memoryRow);
+    laterPage.Children.Add(workLines);
+
+    opsSentence.Foreground = B(theme.Sub);
+    opsNote.Foreground = B(theme.Warn);
+    opsEntry.TextChanged += (_, _) => SyncAmber();
+    opsEntry.KeyDown += (_, e) => { if (e.Key == Key.Enter) SendToLead(); };
+    opsSend = new Button { Content = "Send", HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(16, 6, 16, 6), Margin = new Thickness(0, 8, 0, 0) };
+    opsSend.Click += (_, _) => SendToLead();
+    opsPage = new StackPanel { Visibility = Visibility.Collapsed };
+    foreach (UIElement e in new UIElement[] { opsSentence, opsNote, opsMessages, opsSeats, opsEntry, opsSend, opsDetail }) opsPage.Children.Add(e);
 
     var page = new StackPanel { Margin = new Thickness(36, 24, 36, 24) };
     page.Children.Add(header);
     page.Children.Add(overviewPage);
     page.Children.Add(healthPage);
     page.Children.Add(laterPage);
+    page.Children.Add(opsPage);
     guideText.Foreground = B(theme.Sub);
     guideDetail.Foreground = B(theme.Warn);
     guideEntry.Background = B(theme.Selected);
@@ -228,7 +257,21 @@ sealed class MainWindow : Window
     glance = Read.Load();
     Fill();
     ShowPage(0);
-    if (WantGuide() && glance.HaveBinary) GuideShow(0);
+    string? guideFlag = Environment.GetEnvironmentVariable("MEMEV_GUIDE");
+    string? want = Environment.GetEnvironmentVariable("MEMEV_SELF_CHECK_PAGE");
+    if (string.IsNullOrEmpty(want)) want = Environment.GetEnvironmentVariable("MEMEV_OPEN");
+    if (guideFlag == "1" && glance.HaveBinary) GuideShow(0);
+    else if (!WantGuide())
+    {
+      int index = PageIndex(want);
+      if (index >= 0) ShowPage(index);
+    }
+    else if (glance.DaemonUp || VaultAnswers())
+    {
+      MarkGuide();
+      ShowPage(1);
+    }
+    else if (glance.HaveBinary) GuideShow(0);
     ContentRendered += (_, _) =>
     {
       if (selfCheck) { Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(ReportAndQuit)); return; }
@@ -299,7 +342,13 @@ sealed class MainWindow : Window
     Task.Run(Read.Load).ContinueWith((t) =>
     {
       loading = false;
-      if (t.Status == TaskStatus.RanToCompletion) { glance = t.Result; Fill(); }
+      if (t.Status == TaskStatus.RanToCompletion)
+      {
+        glance = t.Result;
+        Fill();
+        if (selected >= 0 && selected < Nav.Length && Nav[selected].Kind == 3) LoadOps();
+        else if (selected >= 0 && selected < Nav.Length && Nav[selected].Kind == 4) LoadLive(Nav[selected].Id);
+      }
     }, TaskScheduler.FromCurrentSynchronizationContext());
   }
 
@@ -310,21 +359,158 @@ sealed class MainWindow : Window
 
   void Page(StackPanel visible)
   {
-    foreach (StackPanel p in new[] { overviewPage, healthPage, laterPage, guidePage }) p.Visibility = p == visible ? Visibility.Visible : Visibility.Collapsed;
+    foreach (StackPanel p in new[] { overviewPage, healthPage, laterPage, guidePage, opsPage }) p.Visibility = p == visible ? Visibility.Visible : Visibility.Collapsed;
+  }
+
+  static int PageIndex(string? id)
+  {
+    if (string.IsNullOrEmpty(id)) return -1;
+    for (int i = 0; i < Nav.Length; i++) if (Nav[i].Id == id) return i;
+    return -1;
   }
 
   void ShowPage(int index)
   {
     Select(index);
+    selected = index;
     NavItem item = Nav[index];
     if (item.Kind == 0) { pageTitle.Text = "Executive overview"; Page(overviewPage); }
-    else { pageTitle.Text = item.Label; laterBody.Text = item.Later ?? ""; Page(laterPage); }
+    else if (item.Kind == 3) { pageTitle.Text = item.Label; Page(opsPage); LoadOps(); }
+    else if (item.Kind == 4) { pageTitle.Text = item.Label; laterBody.Text = ""; Page(laterPage); LoadLive(item.Id); }
+    else { pageTitle.Text = item.Label; laterBody.Text = item.Later ?? ""; workLines.Children.Clear(); memoryRow.Visibility = Visibility.Collapsed; Page(laterPage); }
+    SyncAmber();
+  }
+
+  void SyncAmber()
+  {
+    if (inGuide) return;
+    bool ready = opsPage.Visibility == Visibility.Visible && !string.IsNullOrWhiteSpace(opsEntry.Text);
+    if (ready)
+    {
+      primary.Tag = "refresh";
+      opsSend.Tag = "primary";
+      opsSend.Background = new SolidColorBrush(Theme.Amber);
+    }
+    else
+    {
+      opsSend.Tag = null;
+      opsSend.Background = Brushes.Transparent;
+      primary.Tag = "primary";
+    }
+  }
+
+  bool VaultAnswers()
+  {
+    string? bin = Core.ResolveBin();
+    if (bin == null) return false;
+    Core.Result r = Core.Capture(bin, new[] { "status", "--json" }, 15000);
+    return r.Done && r.ExitCode == 0 && r.Output.Contains('{');
+  }
+
+  void MarkGuide()
+  {
+    try { string m = MarkerPath(); Directory.CreateDirectory(System.IO.Path.GetDirectoryName(m)!); File.WriteAllText(m, "ok\n"); }
+    catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { }
+  }
+
+  void LoadOps()
+  {
+    string? bin = Core.ResolveBin();
+    ops = bin == null
+      ? new Ops.View { Sentence = "Memev is not on this computer." }
+      : Ops.Load((args) => Core.Capture(bin, args, 15000));
+    opsSentence.Text = ops.Sentence;
+    opsNote.Text = ops.Note;
+    opsNote.Visibility = ops.Note.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    opsMessages.Children.Clear();
+    if (ops.Messages.Count == 0) opsMessages.Children.Add(Line(Ops.Blank));
+    else foreach (Ops.Msg m in ops.Messages) opsMessages.Children.Add(Line(m.From + " -> " + m.To + ": " + m.Body));
+    opsSeats.Children.Clear();
+    if (ops.Seats.Count == 0) opsSeats.Children.Add(Line("No seats yet. An app gets a seat when it connects."));
+    foreach (Ops.Seat s in ops.Seats)
+    {
+      string name = s.Name;
+      var b = new Button
+      {
+        Content = "Make " + name + " the lead", HorizontalAlignment = HorizontalAlignment.Left,
+        Margin = new Thickness(0, 2, 0, 2), Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+        Foreground = B(theme.Text),
+      };
+      b.Click += (_, _) => MakeLead(name);
+      opsSeats.Children.Add(b);
+    }
+  }
+
+  void RunWords(string[]? args, string failure)
+  {
+    if (args == null) { opsDetail.Text = failure; return; }
+    string? bin = Core.ResolveBin();
+    if (bin == null) { opsDetail.Text = "Memev is not on this computer."; return; }
+    Core.Result r = Core.Capture(bin, args, 15000);
+    if (!r.Done || r.ExitCode != 0) { opsDetail.Text = "That did not go through."; return; }
+    opsDetail.Text = "";
+  }
+
+  void MakeLead(string name)
+  {
+    string[]? args = Ops.LeadArgs(ops, name, out string why);
+    if (args == null) { opsDetail.Text = why; return; }
+    RunWords(args, why);
+    if (opsDetail.Text.Length == 0) LoadOps();
+    SyncAmber();
+  }
+
+  void SendToLead()
+  {
+    string[]? args = Ops.SendArgs(ops.Lead, opsEntry.Text, out string why);
+    if (args == null) { opsDetail.Text = why; return; }
+    RunWords(args, why);
+    if (opsDetail.Text.Length == 0)
+    {
+      opsEntry.Text = "";
+      opsDetail.Text = "Sent.";
+      LoadOps();
+    }
+    SyncAmber();
+  }
+
+  void LoadLive(string id)
+  {
+    memoryRow.Visibility = id == "memory" ? Visibility.Visible : Visibility.Collapsed;
+    string? bin = Core.ResolveBin();
+    string text = bin == null
+      ? "Memev is not on this computer."
+      : Ops.Page(id, memoryEntry.Text, (args) => Core.Capture(bin, args, 15000));
+    workLines.Children.Clear();
+    foreach (string raw in text.Split('\n'))
+    {
+      if (raw.Length == 0) continue;
+      bool head = raw.StartsWith("# ");
+      workLines.Children.Add(new TextBlock
+      {
+        Text = head ? raw.Substring(2) : raw,
+        TextWrapping = TextWrapping.Wrap,
+        Margin = new Thickness(0, head ? 10 : 2, 0, 2),
+        Foreground = B(head ? theme.Dim : theme.Text),
+        FontSize = head ? 12 : 14,
+      });
+    }
   }
 
   // Health is not a menu row; the link under the wordmark opens it
   void ShowHealth() { Select(-1); pageTitle.Text = "Health"; Page(healthPage); }
 
-  void ShowHelp() { Select(-1); pageTitle.Text = "Help and support"; laterBody.Text = "Help and support is not in this slice. This app sends nothing."; Page(laterPage); }
+  void ShowHelp()
+  {
+    Select(-1);
+    selected = -1;
+    pageTitle.Text = "Help and support";
+    laterBody.Text = "Help and support is not in this slice. This app sends nothing.";
+    workLines.Children.Clear();
+    memoryRow.Visibility = Visibility.Collapsed;
+    Page(laterPage);
+    SyncAmber();
+  }
 
   // ---- the first launch, as native/linux/src/ui.c runs it
 
@@ -357,6 +543,8 @@ sealed class MainWindow : Window
   {
     inGuide = true;
     guideStep = step;
+    primary.Tag = "primary";
+    opsSend.Tag = null;
     SetNav(false);
     Select(-1);
     Page(guidePage);
@@ -511,9 +699,8 @@ sealed class MainWindow : Window
     back.Visibility = Visibility.Collapsed;
     primaryLabel.Text = "Refresh";
     SetNav(true);
-    try { string m = MarkerPath(); Directory.CreateDirectory(System.IO.Path.GetDirectoryName(m)!); File.WriteAllText(m, "ok\n"); }
-    catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { }
-    ShowPage(0);
+    MarkGuide();
+    ShowPage(1);
     Reload();
   }
 
@@ -526,6 +713,27 @@ sealed class MainWindow : Window
 
   void ReportAndQuit()
   {
+    if (!inGuide && pageTitle.Text == "Operations")
+    {
+      var seen = All(this).OfType<TextBlock>().Select((t) => t.Text ?? "").ToList();
+      bool hidden = seen.Any((t) => t.Contains("should-not-appear") || t.Contains("vault-marker") || t.Contains("secret-host"));
+      Program.Out("page=Operations");
+      Program.Out("prompt=" + Ops.Prompt);
+      Program.Out("lead_sentence=" + opsSentence.Text);
+      Program.Out("messages=" + ops.Messages.Count);
+      Program.Out("seats=" + ops.Seats.Count);
+      Program.Out("secret=" + (hidden ? "present" : "absent"));
+      Environment.Exit(opsSentence.Text.Length > 0 && !hidden ? 0 : 1);
+    }
+    if (!inGuide && selected >= 0 && selected < Nav.Length && Nav[selected].Kind == 4 && laterPage.Visibility == Visibility.Visible)
+    {
+      var seen = All(this).OfType<TextBlock>().Select((t) => t.Text ?? "").ToList();
+      bool hidden = seen.Any((t) => t.Contains("should-not-appear") || t.Contains("vault-marker") || t.Contains("secret-host") || t.Contains("example.invalid"));
+      Program.Out("page=" + Nav[selected].Id);
+      foreach (TextBlock line in workLines.Children.OfType<TextBlock>()) Program.Out("line=" + line.Text);
+      Program.Out("secret=" + (hidden ? "present" : "absent"));
+      Environment.Exit(hidden ? 1 : 0);
+    }
     if (inGuide)
     {
       int count = All(this).OfType<Button>().Count((b) => (b.Tag as string) == "primary" && b.IsVisible);

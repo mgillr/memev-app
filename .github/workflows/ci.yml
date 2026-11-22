@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install the Linux toolkit
-        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev xvfb lsof
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev xvfb lsof curl xz-utils
       - name: Build and test the Linux window
         run: make -C native/linux test
       - name: Fetch the core used for the proof
@@ -33,6 +33,8 @@ jobs:
           git -C /tmp/memev-core checkout -q FETCH_HEAD
       - name: Prove the first launch against that core
         run: make -C native/linux real-core
+      - name: Install the personal desktop and open Operations
+        run: bash installers/linux/test/install-check.sh
   native-macos:
     strategy:
       fail-fast: false

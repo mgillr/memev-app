@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// The first native slice on macOS: the same window as native/linux, in AppKit. It reads the core through the shared reader
-// (native/linux/src/read.c), writes nothing and sends nothing.
+// The macOS window: the same window as native/linux, in AppKit. It reads the core through the shared reader
+// (native/linux/src/read.c). Operations can name a lead and send that lead a task on this computer's bus.
 import AppKit
 
 struct NavItem {
@@ -12,7 +12,7 @@ struct NavItem {
 
 let NAV: [NavItem] = [
   NavItem(id: "overview", label: "Overview", kind: 0, later: ""),
-  NavItem(id: "operations", label: "Operations", kind: 2, later: "The live agent panes need the core's bus filters (SO-N-15), which are not on main yet. Bots and agents shows the team today."),
+  NavItem(id: "operations", label: "Operations", kind: 3, later: ""),
   NavItem(id: "projects", label: "Projects", kind: 2, later: "Not in this slice. No project list is loaded yet."),
   NavItem(id: "bots", label: "Bots and agents", kind: 2, later: "Not in this slice. The roster is not loaded yet."),
   NavItem(id: "memory", label: "Memory", kind: 2, later: "Not in this slice. Search stays on the memev command until a later slice."),
@@ -79,7 +79,7 @@ final class NavButton: NSButton {
   }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
   var window: NSWindow!
   var palette = Palette.dark
   var glance = memev_shim_new()!
@@ -114,6 +114,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   var guide: GuideController!
   let pagesView = NSStackView()
   let search = NSSearchField()
+  let opsView = NSStackView()
+  let opsSentence = NSTextField(wrappingLabelWithString: "")
+  let opsNote = NSTextField(wrappingLabelWithString: "")
+  let opsMessages = NSStackView()
+  let opsSeats = NSStackView()
+  let opsEntry = NSTextField(string: "")
+  let opsSend = NSButton(title: "Send", target: nil, action: nil)
+  let opsDetail = NSTextField(wrappingLabelWithString: "")
+  var bus = BusView()
   var currentPage = -1
   var pageLoad = 0
   var inGuide = false
@@ -130,7 +139,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     memev_shim_load(glance)
     paint()
     fill()
-    if memev_shim_want_guide() { guide.show(0) } else { showPage(0) }
+    if env["MEMEV_GUIDE"] == "1" { guide.show(0) }
+    else if !memev_shim_want_guide() {
+      if let open = env["MEMEV_OPEN"], let i = NAV.firstIndex(where: { $0.id == open }) { showPage(i) }
+      else { showPage(0) }
+    } else if memev_shim_daemon_up(glance) || vaultAnswers() {
+      memev_shim_guide_done()
+      showPage(1)
+    } else { guide.show(0) }
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     if selfCheck {
@@ -300,7 +316,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     pageStack.spacing = 24
     pageStack.edgeInsets = NSEdgeInsets(top: 24, left: 36, bottom: 24, right: 36)
     pageStack.translatesAutoresizingMaskIntoConstraints = false
-    for v in [header, overviewView!, healthView!, laterView!, guide.view, pagesView] as [NSView] {
+    opsView.orientation = .vertical
+    opsView.alignment = .leading
+    opsView.spacing = 12
+    opsView.translatesAutoresizingMaskIntoConstraints = false
+    for f in [opsSentence, opsNote, opsDetail] { label(f, size: 16); f.preferredMaxLayoutWidth = 600 }
+    for s in [opsMessages, opsSeats] {
+      s.orientation = .vertical
+      s.alignment = .leading
+      s.spacing = 6
+      s.translatesAutoresizingMaskIntoConstraints = false
+    }
+    opsEntry.placeholderString = Bus.prompt
+    opsEntry.delegate = self
+    opsEntry.translatesAutoresizingMaskIntoConstraints = false
+    opsEntry.widthAnchor.constraint(equalToConstant: 520).isActive = true
+    opsEntry.target = self
+    opsEntry.action = #selector(sendClicked(_:))
+    opsSend.target = self
+    opsSend.action = #selector(sendClicked(_:))
+    opsSend.isBordered = false
+    opsSend.wantsLayer = true
+    opsSend.layer?.cornerRadius = 6
+    opsSend.translatesAutoresizingMaskIntoConstraints = false
+    for v in [opsSentence, opsNote, opsMessages, opsSeats, opsEntry, opsSend, opsDetail] as [NSView] { opsView.addArrangedSubview(v) }
+    for v in [header, overviewView!, healthView!, laterView!, guide.view, pagesView, opsView] as [NSView] {
       pageStack.addArrangedSubview(v)
       v.widthAnchor.constraint(equalTo: pageStack.widthAnchor, constant: -72).isActive = true
     }
@@ -410,7 +450,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func show(_ view: NSStackView, title: String) {
     pageTitle.stringValue = title
-    for v in [overviewView!, healthView!, laterView!, guide.view, pagesView] { v.isHidden = v !== view }
+    for v in [overviewView!, healthView!, laterView!, guide.view, pagesView, opsView] { v.isHidden = v !== view }
+    syncAmber()
   }
 
   func select(_ index: Int) {
@@ -429,6 +470,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if inGuide { inGuide = false; setPrimary("Refresh") }
   }
 
+  func armGuideButton() {
+    opsSend.identifier = nil
+    opsSend.layer?.backgroundColor = NSColor.clear.cgColor
+    primary.identifier = NSUserInterfaceItemIdentifier("primary")
+    primary.layer?.backgroundColor = Palette.amber.cgColor
+  }
+
+  func syncAmber() {
+    if inGuide { return }
+    let ready = !opsView.isHidden && !opsEntry.stringValue.trimmingCharacters(in: .whitespaces).isEmpty
+    if ready {
+      primary.identifier = NSUserInterfaceItemIdentifier("refresh")
+      primary.layer?.backgroundColor = NSColor.clear.cgColor
+      opsSend.identifier = NSUserInterfaceItemIdentifier("primary")
+      opsSend.layer?.backgroundColor = Palette.amber.cgColor
+      opsSend.attributedTitle = NSAttributedString(string: "Send", attributes: [.foregroundColor: Palette.onAmber, .font: NSFont.systemFont(ofSize: 13, weight: .medium)])
+    } else {
+      opsSend.identifier = nil
+      opsSend.layer?.backgroundColor = NSColor.clear.cgColor
+      primary.identifier = NSUserInterfaceItemIdentifier("primary")
+      primary.layer?.backgroundColor = Palette.amber.cgColor
+    }
+  }
+
+  func controlTextDidChange(_ note: Notification) {
+    if (note.object as? NSTextField) == opsEntry { syncAmber() }
+  }
+
+  func vaultAnswers() -> Bool {
+    let (code, out) = memevRun(["status", "--json"], timeout: 15000)
+    return code == 0 && out.contains("{")
+  }
+
+  func loadOps() {
+    pageLoad += 1
+    let ticket = pageLoad
+    DispatchQueue.global(qos: .userInitiated).async {
+      let fresh = Bus.load()
+      DispatchQueue.main.async {
+        guard ticket == self.pageLoad else { return }
+        self.bus = fresh
+        self.opsSentence.stringValue = fresh.sentence
+        self.opsNote.stringValue = fresh.note
+        self.opsNote.isHidden = fresh.note.isEmpty
+        for v in self.opsMessages.arrangedSubviews { self.opsMessages.removeArrangedSubview(v); v.removeFromSuperview() }
+        if fresh.messages.isEmpty { self.opsMessages.addArrangedSubview(self.plain(Bus.blank)) }
+        else { for m in fresh.messages { self.opsMessages.addArrangedSubview(self.plain("\(m.from) -> \(m.to): \(m.body)")) } }
+        for v in self.opsSeats.arrangedSubviews { self.opsSeats.removeArrangedSubview(v); v.removeFromSuperview() }
+        if fresh.seats.isEmpty {
+          self.opsSeats.addArrangedSubview(self.plain("No seats yet. An app gets a seat when it connects."))
+        }
+        for s in fresh.seats {
+          let b = NSButton(title: "Make \(s.name) the lead", target: self, action: #selector(self.leadClicked(_:)))
+          b.identifier = NSUserInterfaceItemIdentifier(s.name)
+          b.isBordered = false
+          self.opsSeats.addArrangedSubview(b)
+        }
+        self.syncAmber()
+        if self.selfCheck && ProcessInfo.processInfo.environment["MEMEV_SELF_CHECK_PAGE"] == "operations" { self.reportOps() }
+      }
+    }
+  }
+
+  func reportOps() {
+    print("page=Operations")
+    print("prompt=\(Bus.prompt)")
+    print("lead_sentence=\(opsSentence.stringValue)")
+    print("messages=\(bus.messages.count)")
+    print("seats=\(bus.seats.count)")
+    var texts: [String] = []
+    walk(window.contentView!) { v in
+      if let f = v as? NSTextField { texts.append(f.stringValue) }
+      if let b = v as? NSButton { texts.append(b.title) }
+    }
+    let leak = texts.contains { $0.contains("should-not-appear") || $0.contains("vault-marker") || $0.contains("secret-host") }
+    print("secret=\(leak ? "present" : "absent")")
+    fflush(stdout)
+    exit(opsSentence.stringValue.isEmpty || leak ? 1 : 0)
+  }
+
+  @objc func sendClicked(_ sender: Any?) {
+    let (args, why) = Bus.sendArgs(lead: bus.lead, text: opsEntry.stringValue)
+    guard let args = args else { opsDetail.stringValue = why; return }
+    let (code, _) = memevRun(args, timeout: 15000)
+    if code != 0 { opsDetail.stringValue = "That did not go through."; return }
+    opsEntry.stringValue = ""
+    opsDetail.stringValue = "Sent."
+    loadOps()
+    syncAmber()
+  }
+
+  @objc func leadClicked(_ sender: NSButton) {
+    let (args, why) = Bus.leadArgs(bus, seat: sender.identifier?.rawValue ?? "")
+    guard let args = args else { opsDetail.stringValue = why; return }
+    let (code, _) = memevRun(args, timeout: 15000)
+    if code != 0 { opsDetail.stringValue = "That did not go through."; return }
+    opsDetail.stringValue = ""
+    loadOps()
+  }
+
   func showPage(_ index: Int) {
     guard index >= 0 && index < NAV.count else { return }
     leaveGuide()
@@ -437,6 +578,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     currentPage = index
     if item.kind == 0 {
       show(overviewView, title: "Executive overview")
+    } else if item.id == "operations" {
+      show(opsView, title: item.label)
+      loadOps()
     } else if ["projects", "bots", "memory", "checked", "settings"].contains(item.id) {
       show(pagesView, title: item.label)
       loadPage(item.id)
@@ -526,7 +670,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   @objc func refreshClicked(_ sender: Any?) {
     if inGuide { guide.next(); return }
     reload()
-    if currentPage >= 0, ["projects", "bots", "memory", "checked", "settings"].contains(NAV[currentPage].id) { loadPage(NAV[currentPage].id) }
+    if currentPage >= 0 && NAV[currentPage].id == "operations" { loadOps() }
+    else if currentPage >= 0, ["projects", "bots", "memory", "checked", "settings"].contains(NAV[currentPage].id) { loadPage(NAV[currentPage].id) }
   }
 
   // The core is read off the main thread; the window is filled on it.

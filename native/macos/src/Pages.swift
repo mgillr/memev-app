@@ -90,7 +90,7 @@ enum Pages {
       let states = ["live": "here now", "stale": "not seen recently", "never joined": "has not opened a session yet", "removed": "removed"]
       var rows = seats.map { s -> PageRow in
         let seat = str(s["seat"]), state = str(s["state"])
-        let title = seat.isEmpty ? str(s["device_label"]) : seat
+        let title = seat.isEmpty ? "a computer with no AI app on it yet" : seat
         let sub = seat.isEmpty ? "a computer with no AI app on it yet" : [s["operator"] as? Bool == true ? "the lead" : "", states[state] ?? state].filter { !$0.isEmpty }.joined(separator: " · ")
         return PageRow(title: title, sub: sub, tone: state == "live" || seat.isEmpty ? 0 : state == "removed" ? 2 : 1)
       }
@@ -138,5 +138,91 @@ enum Pages {
     }
     rows.append(PageRow(title: "Theme: follows this computer", sub: "", tone: 0))
     return [PageSection(head: "SETTINGS", rows: rows, empty: "Settings did not answer.")]
+  }
+}
+
+struct BusSeat { let name: String; let state: String; let app: String; let lead: Bool }
+struct BusMsg { let from: String; let to: String; let body: String }
+
+struct BusView {
+  var lead = ""
+  var sentence = ""
+  var note = ""
+  var seats: [BusSeat] = []
+  var messages: [BusMsg] = []
+}
+
+enum Bus {
+  static let prompt = "Tell your lead agent what you want done, or ask a question"
+  static let blank = "Nothing has been said yet. Tell your lead agent what you want done."
+
+  static func safeName(_ s: String) -> Bool {
+    if s.isEmpty || s.count >= 64 { return false }
+    let ok = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-.@+"))
+    return s.unicodeScalars.allSatisfy { ok.contains($0) }
+  }
+
+  static func banned(_ s: String) -> Bool {
+    s.contains(where: { "\"%!&|<>^()\r\n".contains($0) })
+  }
+
+  static func hasPath(_ s: String) -> Bool {
+    s.contains("://") || s.contains("/home/") || s.contains("/Users/") || s.contains("/tmp/") || s.contains("/var/") || s.contains("\\")
+  }
+
+  static func stateWords(_ state: String) -> String {
+    switch state {
+    case "live": return "here now"
+    case "stale": return "not seen recently"
+    case "never joined": return "has not opened a session yet"
+    case "removed": return "removed"
+    case "": return "not seen"
+    default: return state
+    }
+  }
+
+  static func load() -> BusView {
+    var v = BusView()
+    guard let r = memevJSON(["bus", "roster", "--json"]) as? [String: Any] else {
+      v.note = "The roster could not be read."
+      v.sentence = v.note
+      return v
+    }
+    let lead = str(r["operator"])
+    if safeName(lead) { v.lead = lead }
+    for s in (r["seats"] as? [[String: Any]] ?? []) {
+      if v.seats.count >= 16 { break }
+      let name = str(s["seat"])
+      if !safeName(name) { continue }
+      let app = str(s["app"])
+      v.seats.append(BusSeat(name: name, state: str(s["state"]), app: safeName(app) ? app : "", lead: (s["operator"] as? Bool) == true))
+    }
+    if let msgs = memevJSON(["bus", "since", "0", "--json"]) as? [[String: Any]] {
+      for m in msgs {
+        if v.messages.count >= 40 { break }
+        let from = str(m["from"]), to = str(m["to"]), body = str(m["body"])
+        if !safeName(from) || !safeName(to) || hasPath(body) || banned(body) || body.isEmpty { continue }
+        v.messages.append(BusMsg(from: from, to: to, body: body))
+      }
+    } else {
+      v.note = "The message list could not be read."
+    }
+    v.sentence = v.lead.isEmpty
+      ? "No lead is set. Pick one, then tell it what you want done."
+      : "\(v.lead) leads. Tell it what you want done."
+    return v
+  }
+
+  static func sendArgs(lead: String, text: String) -> (args: [String]?, why: String) {
+    if !safeName(lead) { return (nil, "No lead is set. Pick one, then tell it what you want done.") }
+    if text.trimmingCharacters(in: .whitespaces).isEmpty { return (nil, "Write what you want done.") }
+    if text.count >= 400 || banned(text) || hasPath(text) { return (nil, "That message was not sent.") }
+    return (["bus", "send", lead, "task", text], "")
+  }
+
+  static func leadArgs(_ v: BusView, seat: String) -> (args: [String]?, why: String) {
+    if !safeName(seat) { return (nil, "That seat cannot be used.") }
+    if !v.seats.contains(where: { $0.name == seat }) { return (nil, "That seat is not on the roster.") }
+    return (["bus", "operator", seat], "")
   }
 }

@@ -1,6 +1,6 @@
 # The pages, and what each reads from the core
 
-Every page reads the local `memev` command (the window's `MEMEV_BIN`, or the app's own copy) with a fixed argument list and no shell. Nothing here writes to the vault, connects an app, or sends anything off this computer; actions come in a later slice, each behind a confirmation that names what it changes. A page shows only the fields listed for it. Paths, tokens, keys, ids of credentials and raw JSON are never shown.
+Every page reads the local `memev` command (the window's `MEMEV_BIN`, or the app's own copy) with a fixed argument list and no shell. A page shows only the fields listed for it. Paths, tokens, keys, ids of credentials and raw JSON are never shown. Operations is the one page that writes: it can name a lead the person picked, and send that lead a task on this computer's bus. Nothing is connected and nothing leaves this computer.
 
 When a command fails or its answer does not parse, the page says so in one sentence and shows no figures.
 
@@ -34,4 +34,4 @@ When a command fails or its answer does not parse, the page says so in one sente
 
 ## Operations
 
-Waits for the core's `bus since --from --to --json` and `bus unread --peek --json` (SO-N-15). Until then the page says so.
+The lead prompt. `bus roster --json` names the lead, or says to pick one, and lists each seat's name and whether it was seen in the last `live_minutes`. `bus since 0 --json` lists what has been said (from, to and the text). Send runs `bus send <lead> task <text>`. "Make <seat> the lead" runs `bus operator <seat>` for a seat the roster just returned. The box's placeholder is "Tell your lead agent what you want done, or ask a question". With no messages yet: "Nothing has been said yet. Tell your lead agent what you want done." The first time this window opens on a computer that already has a vault, it opens here. After the first-launch guide finishes, it opens here too. A later start opens Executive overview.

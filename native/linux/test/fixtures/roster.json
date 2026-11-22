@@ -1,0 +1,8 @@
+{
+  "operator": "claude-code",
+  "live_minutes": 2,
+  "seats": [
+    {"seat": "claude-code", "state": "live", "app": "claude-code", "operator": true, "device_label": "secret-host"},
+    {"seat": "cursor", "state": "stale", "app": "cursor", "operator": false, "device_label": "secret-host"}
+  ]
+}
